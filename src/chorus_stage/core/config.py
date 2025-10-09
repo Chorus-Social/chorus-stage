@@ -29,11 +29,19 @@ class Settings(BaseSettings):
           at the project root if present.
     """
 
-    app_name: str = "Chorus Stage"
+    app_name: str
+    app_version: str
+
     database_url: str
     admin_email: str
-    items_per_user: int = 50
 
-    model_config = SettingsConfigDict(env_file=".env")
 
-settings = Settings()
+    model_config = SettingsConfigDict(
+        env_file=(".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+settings = Settings() # type: ignore
+
+print(settings.model_dump())  # For debugging; remove or comment out in production
