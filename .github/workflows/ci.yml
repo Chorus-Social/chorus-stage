@@ -1,5 +1,3 @@
-# This is a GitHub Action workflow to check your code on every push to the 'dev' branch.
-
 name: CI Checks
 
 on:
@@ -21,7 +19,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # You can change this to your project's Python version
+          python-version: '3.13'
 
       # Step 2.5: Caches Poetry dependencies to speed up subsequent runs
       - name: Cache Poetry dependencies
