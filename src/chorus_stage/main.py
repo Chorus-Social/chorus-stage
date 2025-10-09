@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 
 # Import the router we created in the users.py file
-from .api import users
+from chorus_stage.api import users
 
 # Create the main FastAPI application instance
 app = FastAPI()
