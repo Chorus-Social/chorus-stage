@@ -1,38 +1,65 @@
+# src/chorus_stage/routers/users.py
+
 import secrets
-from fastapi import APIRouter, Depends
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..models.db_models import User as UserModel
-from ..schemas.users import User as UserSchema, UserCreate
-from ..database import get_db
+from chorus_stage.services import user_service as user_crud
+from chorus_stage.schemas import users as schemas
+from chorus_stage.database import get_db
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/users",  # All paths in this router will start with /users
+    tags=["Users"],   # Group these endpoints in the API docs
+)
 
-@router.post("/users/", response_model=UserSchema)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
+
+@router.post("/", response_model=schemas.User)
+def create_user_endpoint(user: schemas.UserCreate, db: Session = Depends(get_db)):
     """
-    Create a new user.
-
-    A unique, secure user_key is generated automatically.
-    The user's display_name is required.
+    Creates a new user with a unique, automatically generated user_key.
     """
-    
-    # 1. Generate a secure, URL-safe random key.
-    # The brief says 16 chars, your model says 18. Let's stick with the model.
-    generated_key = secrets.token_urlsafe(12) # ~16 chars after encoding
+    generated_key = secrets.token_urlsafe(12)
+    return user_crud.create_user(db=db, user=user, user_key=generated_key)
 
-    # 2. Create a SQLAlchemy User model instance with the data.
-    db_user = UserModel(
-        user_key=generated_key,
-        display_name=user.display_name
-    )
 
-    # 3. Add the new user to the database session.
-    db.add(db_user)
-    # 4. Commit the transaction to save it.
-    db.commit()
-    # 5. Refresh the instance to get the new ID and created_at from the DB.
-    db.refresh(db_user)
+@router.get("/", response_model=List[schemas.User])
+def read_users_endpoint(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Retrieves a list of all users.
+    """
+    return user_crud.get_users(db, skip=skip, limit=limit)
 
-    # 6. Return the SQLAlchemy object. FastAPI + Pydantic handle the rest!
+
+@router.get("/{user_id}", response_model=schemas.User)
+def read_user_endpoint(user_id: int, db: Session = Depends(get_db)):
+    """
+    Retrieves a single user by their ID.
+    """
+    db_user = user_crud.get_user(db, user_id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
     return db_user
+
+
+@router.patch("/{user_id}", response_model=schemas.User)
+def update_user_endpoint(user_id: int, user: schemas.UserUpdate, db: Session = Depends(get_db)):
+    """
+    Updates a user's information (e.g., their display_name).
+    """
+    db_user = user_crud.get_user(db, user_id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user_crud.update_user(db=db, db_user=db_user, update_data=user)
+
+
+@router.delete("/{user_id}", response_model=schemas.User)
+def delete_user_endpoint(user_id: int, db: Session = Depends(get_db)):
+    """
+    Deletes a user from the database.
+    """
+    db_user = user_crud.get_user(db, user_id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user_crud.delete_user(db=db, db_user=db_user)
