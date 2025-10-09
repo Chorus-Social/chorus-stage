@@ -56,7 +56,7 @@ class User(Base):
         primary_key=True,
     )
     user_key: Mapped[str] = mapped_column(
-        String(18),
+        String(60),
         unique=True,
         nullable=False,
     )
