@@ -1,3 +1,4 @@
+# pylint: disable=too-few-public-methods
 """Database models for the Chorus Stage application.
 
 This module defines SQLAlchemy ORM models (Declarative) used by the
@@ -15,8 +16,17 @@ from sqlalchemy.orm import relationship, DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    """Declarative base for all ORM models in this module.
 
+    All ORM models should inherit from `Base` to gain SQLAlchemy's
+    DeclarativeBase behavior (mappings, metadata, etc.).
+
+    Note:
+        DeclarativeBase provides a class-level `metadata` (SQLAlchemy MetaData).
+        Do not shadow that attribute name on model subclasses — use a
+        different attribute name (for example `metadata_`) for JSON or
+        other user-defined fields to avoid collisions.
+    """
 
 class User(Base):
     """Represents a user in the Chorus network.
@@ -33,24 +43,47 @@ class User(Base):
             (database column name is `metadata`). The attribute is named
             `metadata_` to avoid clashing with SQLAlchemy's DeclarativeBase.metadata.
         posts_authored (list[Posts]): A SQLAlchemy relationship to the posts created by the user.
-        communities (list[Community]): A SQLAlchemy relationship to the communities the user is a member of.
+        communities (list[Community]): A SQLAlchemy relationship to the
+            communities the user is a member of.
         votes (list[Votes]): A SQLAlchemy relationship to the votes cast by the user.
     """
 
     __tablename__ = "tbl_users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_key: Mapped[str] = mapped_column(String(18), unique=True, nullable=False)
-    display_name: Mapped[str] = mapped_column(Text, nullable=False) # Changed back to not nullable
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.utcnow)
-    metadata_: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True, name="metadata")
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    user_key: Mapped[str] = mapped_column(
+        String(18),
+        unique=True,
+        nullable=False,
+    )
+    display_name: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )  # Changed back to not nullable
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+    )
+    metadata_: Mapped[Optional[Dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        name="metadata",
+    )
 
     # --- ADDED RELATIONSHIPS ---
     # One-to-many: A user can create many posts
     posts_authored: Mapped[List["Posts"]] = relationship("Posts", back_populates="author")
 
     # Many-to-many: A user can be in many communities
-    communities: Mapped[List["Community"]] = relationship("Community", secondary="tbl_community_members", back_populates="members")
+    communities: Mapped[List["Community"]] = relationship(
+        "Community",
+        secondary="tbl_community_members",
+        back_populates="members",
+    )
 
     # Many-to-many: A user can vote on many posts
     votes: Mapped[List["Votes"]] = relationship("Votes", back_populates="user")
@@ -81,17 +114,46 @@ class Posts(Base):
 
     __tablename__ = "tbl_posts"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("tbl_posts.id"), nullable=True)
-    is_rephrasing: Mapped[bool] = mapped_column(Boolean, index=True)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.utcnow)
-    metadata_: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True, name="metadata")
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    parent_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("tbl_posts.id"),
+        nullable=True,
+    )
+    is_rephrasing: Mapped[bool] = mapped_column(
+        Boolean,
+        index=True,
+    )
+    body: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+    )
+    metadata_: Mapped[Optional[Dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        name="metadata",
+    )
 
-    community_id: Mapped[int] = mapped_column(Integer, ForeignKey('tbl_communities.id'), nullable=False)
+    community_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey('tbl_communities.id'),
+        nullable=False,
+    )
 
     # --- ADDED AUTHOR FOREIGN KEY and RELATIONSHIP ---
-    author_id: Mapped[int] = mapped_column(Integer, ForeignKey('tbl_users.id'), nullable=False)
+    author_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey('tbl_users.id'),
+        nullable=False,
+    )
     author: Mapped["User"] = relationship("User", back_populates="posts_authored")
 
     community: Mapped["Community"] = relationship("Community", back_populates="posts")
@@ -101,7 +163,11 @@ class Posts(Base):
     votes: Mapped[List["Votes"]] = relationship("Votes", back_populates="post")
 
     # Self-referencing: A post (comment) has one parent, a parent can have many children (comments)
-    parent: Mapped[Optional["Posts"]] = relationship("Posts", remote_side=[id], back_populates="children")
+    parent: Mapped[Optional["Posts"]] = relationship(
+        "Posts",
+        remote_side=[id],
+        back_populates="children",
+    )
     children: Mapped[List["Posts"]] = relationship("Posts", back_populates="parent")
 
 
@@ -128,17 +194,36 @@ class Community(Base):
     """
     __tablename__ = "tbl_communities"
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    display_name: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.utcnow)
-    metadata_: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True, name="metadata")
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    display_name: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        unique=True,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+    )
+    metadata_: Mapped[Optional[Dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        name="metadata",
+    )
     
     # --- ADDED RELATIONSHIPS ---
     # One-to-many: A community has many posts
     posts: Mapped[List["Posts"]] = relationship("Posts", back_populates="community")
     
     # Many-to-many: A community has many members (users)
-    members: Mapped[List["User"]] = relationship("User", secondary="tbl_community_members", back_populates="communities")
+    members: Mapped[List["User"]] = relationship(
+        "User",
+        secondary="tbl_community_members",
+        back_populates="communities",
+    )
 
 
 class Votes(Base):
@@ -164,10 +249,25 @@ class Votes(Base):
     """
     __tablename__ = "tbl_votes"
 
-    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("tbl_posts.id"), primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("tbl_users.id"), primary_key=True)
-    vote: Mapped[int] = mapped_column(Integer, nullable=False)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    post_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("tbl_posts.id"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("tbl_users.id"),
+        primary_key=True,
+    )
+    vote: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+    )
 
     # --- ADDED RELATIONSHIPS ---
     # These link the vote back to the specific user and post objects
@@ -189,9 +289,21 @@ class CommunityMembers(Base):
     """
     __tablename__ = "tbl_community_members"
     
-    community_id: Mapped[int] = mapped_column(Integer, ForeignKey("tbl_communities.id"), primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("tbl_users.id"), primary_key=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    community_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("tbl_communities.id"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("tbl_users.id"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+    )
 
 class PostCoAuthors(Base):
     """Association table for co-authors of posts.
@@ -207,7 +319,21 @@ class PostCoAuthors(Base):
     """
     __tablename__ = "tbl_post_coauthors"
     
-    post_id: Mapped[int] = mapped_column(Integer, ForeignKey("tbl_posts.id"), primary_key=True, nullable=False)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("tbl_users.id"), primary_key=True, nullable=False)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, default=datetime.datetime.utcnow)
+    post_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("tbl_posts.id"),
+        primary_key=True,
+        nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("tbl_users.id"),
+        primary_key=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+    )
     
