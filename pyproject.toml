@@ -1,9 +1,9 @@
 [project]
 name = "chorus-stage"
-version = "0.0"
-description = ""
+version = "0.0.1"
+description = "The official implementation of the Chorus Stage (network) API"
 authors = [
-    {name = "Your Name",email = "you@example.com"}
+    {name = "Hailey Welsh",email = "admin@haileywelsh.me"}
 ]
 readme = "README.md"
 requires-python = ">=3.13"
@@ -15,7 +15,9 @@ dependencies = [
     "sqlalchemy (>=2.0.43,<3.0.0)",
     "pydantic-settings (>=2.11.0,<3.0.0)",
     "pylint (>=3.3.9,<4.0.0)",
-    "pytest (>=8.4.2,<9.0.0)"
+    "pytest (>=8.4.2,<9.0.0)",
+    "psycopg2 (>=2.9.10,<3.0.0)",
+    "bcrypt (>=5.0.0,<6.0.0)"
 ]
 
 [tool.poetry]
