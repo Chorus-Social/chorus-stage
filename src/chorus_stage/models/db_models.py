@@ -28,6 +28,7 @@ class Base(DeclarativeBase):
         other user-defined fields to avoid collisions.
     """
 
+
 class User(Base):
     """Represents a user in the Chorus network.
 
@@ -193,7 +194,7 @@ class Community(Base):
         - Use `metadata_` when accessing the JSON column on instances.
     """
     __tablename__ = "tbl_communities"
-    
+
     id: Mapped[int] = mapped_column(
         Integer,
         primary_key=True,
@@ -213,11 +214,11 @@ class Community(Base):
         nullable=True,
         name="metadata",
     )
-    
+
     # --- ADDED RELATIONSHIPS ---
     # One-to-many: A community has many posts
     posts: Mapped[List["Posts"]] = relationship("Posts", back_populates="community")
-    
+
     # Many-to-many: A community has many members (users)
     members: Mapped[List["User"]] = relationship(
         "User",
@@ -288,7 +289,7 @@ class CommunityMembers(Base):
         created_at (datetime): When the membership record was created.
     """
     __tablename__ = "tbl_community_members"
-    
+
     community_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tbl_communities.id"),
@@ -299,6 +300,7 @@ class CommunityMembers(Base):
         ForeignKey("tbl_users.id"),
         primary_key=True,
     )
+
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime,
         nullable=False,
@@ -318,7 +320,7 @@ class PostCoAuthors(Base):
         created_at (datetime): When the co-author relationship was created.
     """
     __tablename__ = "tbl_post_coauthors"
-    
+
     post_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("tbl_posts.id"),
@@ -336,4 +338,3 @@ class PostCoAuthors(Base):
         nullable=False,
         default=datetime.datetime.utcnow,
     )
-    
