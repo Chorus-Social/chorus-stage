@@ -28,6 +28,46 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+# --- Alembic bootstrap for src/ layout ---
+from logging.config import fileConfig
+from alembic import context
+from sqlalchemy import engine_from_config, pool
+
+import os, sys, pathlib
+
+# Ensure project root and src/ are importable no matter where alembic runs
+ROOT = pathlib.Path(__file__).resolve().parents[1]      # .../migrations/..
+SRC  = ROOT / "src"
+for p in (str(ROOT), str(SRC)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+# Import settings so we can inject a URL for Alembic (sync driver)
+try:
+    from chorus_stage.core.settings import settings
+    DEFAULT_URL = settings.database_url.replace("+psycopg_async", "+psycopg")
+except Exception:
+    DEFAULT_URL = None
+
+config = context.config
+if config is not None and DEFAULT_URL and not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", DEFAULT_URL)
+
+# Import Base and, crucially, load model modules so they register with Base.metadata
+from chorus_stage.db.session import Base  # this module imports the models after defining Base
+
+# If you prefer to be explicit, you can force-import the packages too:
+# from chorus_stage.models import community, message, moderation, post, rate, user, vote  # noqa: F401
+
+# Tell Alembic what to diff against
+target_metadata = Base.metadata
+
+# Optional: don’t try to diff Alembic’s own table
+def include_object(obj, name, type_, reflected, compare_to):
+    if type_ == "table" and name == "alembic_version":
+        return False
+    return True
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.

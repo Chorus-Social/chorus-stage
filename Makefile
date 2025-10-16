@@ -1,19 +1,81 @@
-.PHONY: run test lint fmt migrate revision
+# --------- Chorus Makefile (Python 3.14 + psycopg) ----------
+# Boring. Reliable. Future-you will thank past-you.
 
+SHELL := /bin/bash
+PY := python3.14
+UVICORN := uvicorn
+APP_MODULE := chorus_stage.main:app
+PORT ?= 8080
+PYTHONPATH := src
+export PYTHONPATH
+
+POETRY := poetry
+ALEMBIC := $(POETRY) run alembic
+
+# Sync URL for Alembic (psycopg sync); app uses async via settings
+ALEMBIC_URL ?= postgresql+psycopg://chorus:is-cool@localhost:5432/chorus
+
+.PHONY: help install lock venv info run dev db-init migrate revision downgrade reset-db lint fmt test clean
+
+help:
+	@echo "targets: install | run | dev | db-init | migrate | revision | downgrade | reset-db | lint | fmt | test | info | clean"
+
+# ----- setup -----
+install:
+	$(POETRY) install
+
+lock:
+	$(POETRY) lock --no-update
+
+venv:
+	$(POETRY) env use $(PY)
+
+info:
+	@echo "PYTHONPATH=$(PYTHONPATH)"
+	@$(POETRY) run $(PY) -V
+	@$(POETRY) run $(PY) -c "import psycopg, sqlalchemy; print('psycopg OK, SQLAlchemy OK')"
+
+# ----- app -----
 run:
-	poetry run uvicorn chorus.main:app --reload --port 8080
+	$(POETRY) run $(UVICORN) $(APP_MODULE) --host 0.0.0.0 --port $(PORT)
 
-test:
-	poetry run pytest -q
+dev: db-init run
 
-lint:
-	poetry run ruff check .
-
-fmt:
-	poetry run ruff check --fix .
-
-revision:
-	poetry run alembic revision -m "auto"
+# ----- database bootstrap + migrations -----
+db-init:
+	# Create DB if missing (sync psycopg connection)
+	$(POETRY) run $(PY) -m chorus_stage.scripts.ensure_db
+	# Apply migrations to head
+	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) upgrade head
 
 migrate:
-	poetry run alembic upgrade head
+	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) upgrade head
+
+revision:
+	# Autogenerate a migration from current models
+	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) revision --autogenerate -m "$(m)"
+
+downgrade:
+	# Example: make downgrade r=-1  (or r=base)
+	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) downgrade $(r)
+
+reset-db:
+	# Nuclear option for local dev. Requires drop/create privileges.
+	-psql postgres://chorus:is-cool@localhost:5432/postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='chorus' AND pid <> pg_backend_pid();" >/dev/null 2>&1
+	-psql postgres://chorus:is-cool@localhost:5432/postgres -c "DROP DATABASE IF EXISTS chorus;" >/dev/null 2>&1
+	psql postgres://chorus:is-cool@localhost:5432/postgres -c "CREATE DATABASE chorus;"
+	$(MAKE) migrate
+
+# ----- quality -----
+lint:
+	$(POETRY) run ruff check src
+
+fmt:
+	$(POETRY) run ruff check --fix src
+
+test:
+	$(POETRY) run pytest -q
+
+clean:
+	@find . -name "__pycache__" -type d -prune -exec rm -rf {} + || true
+	@rm -rf .pytest_cache .ruff_cache dist build *.egg-info || true
