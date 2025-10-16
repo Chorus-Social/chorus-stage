@@ -1,35 +1,22 @@
-"""Signature utilities (Ed25519).
-
-All functions are deterministic and side-effect free.
-"""
+"""Signature utilities built on Ed25519 primitives."""
 from __future__ import annotations
-from typing import Optional
-import hashlib
+
 import binascii
+import hashlib
+
 from nacl.signing import VerifyKey
-from nacl.exceptions import BadSignatureError
+
 
 def verify_signature(pubkey_hex: str, message: bytes, signature_hex: str) -> bool:
     """Verify an Ed25519 signature.
 
-    Parameters
-    ----------
-    pubkey_hex : str
-        Hex-encoded 32-byte public key.
-    message : bytes
-        The exact bytes that were signed on the client.
-    signature_hex : str
-        Hex-encoded 64-byte signature.
+    Args:
+        pubkey_hex: Hex-encoded 32-byte public key.
+        message: Exact bytes that were signed on the client.
+        signature_hex: Hex-encoded 64-byte signature.
 
-    Returns
-    -------
-    bool
-        True if the signature is valid for `message` under `pubkey_hex`.
-
-    Edge cases
-    ----------
-    - Reject non-hex or wrong length inputs.
-    - Treat exceptions as verification failure.
+    Returns:
+        True if the signature is valid for `message` under `pubkey_hex`; False otherwise.
     """
     try:
         pubkey = VerifyKey(binascii.unhexlify(pubkey_hex))
@@ -39,5 +26,7 @@ def verify_signature(pubkey_hex: str, message: bytes, signature_hex: str) -> boo
     except Exception:
         return False
 
+
 def hash_key(user_key: str) -> str:
+    """Return a SHA-256 hash of the provided user key."""
     return hashlib.sha256(user_key.encode("utf-8")).hexdigest()

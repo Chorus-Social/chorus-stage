@@ -1,22 +1,42 @@
-"""PoW endpoints.
+"""Proof-of-work API endpoints.
 
-These endpoints are intentionally simple. State like replay caches or rate-limits
-can be layered in later.
+This module exposes a minimal interface for issuing proof-of-work challenges
+to clients. The implementation intentionally stays lightweight; additional
+concerns such as replay tracking or rate limiting can be layered on elsewhere
+in the stack.
 """
 from __future__ import annotations
+
 from fastapi import APIRouter
-import binascii
+
 from chorus_stage.schemas.pow import PowChallengeOut
-from chorus_stage.services.pow_service import issue_challenge, Action
+from chorus_stage.services.pow_service import Action, issue_challenge
 
 router = APIRouter()
 
+
+DEFAULT_ACTION: Action = "post"
+DEFAULT_TARGET_BITS: int = 16
+
+
 @router.get("/challenge", response_model=PowChallengeOut)
-async def get_challenge(action: Action = "post", target_bits: int = 16) -> PowChallengeOut:
-    ch = issue_challenge(action, target_bits)
+async def get_challenge(
+    action: Action = DEFAULT_ACTION, target_bits: int = DEFAULT_TARGET_BITS
+) -> PowChallengeOut:
+    """Issue a proof-of-work challenge for a client to solve.
+
+    Args:
+        action: The domain-specific action the proof-of-work guards.
+        target_bits: Difficulty expressed as the target number of leading zero bits.
+
+    Returns:
+        A `PowChallengeOut` payload that can be returned directly by FastAPI.
+    """
+    challenge = issue_challenge(action, target_bits)
     return PowChallengeOut(
-        action=ch.action,
-        salt_hex=binascii.hexlify(ch.salt).decode(),
-        target_bits=ch.target_bits,
-        issued_at_ms=ch.issued_at_ms,
+        action=challenge.action,
+        # Encode the random salt as hex to keep the response JSON friendly.
+        salt_hex=challenge.salt.hex(),
+        target_bits=challenge.target_bits,
+        issued_at_ms=challenge.issued_at_ms,
     )

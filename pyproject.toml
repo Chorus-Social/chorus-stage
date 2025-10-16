@@ -29,13 +29,23 @@ mypy = "^1.11.2"
 
 [tool.ruff]
 line-length = 100
-select = ["E","F","I","UP","B","W","C90"]
+target-version = "py312"
+extend-select = ["I", "F", "E", "W", "UP", "B", "SIM", "PL"]
+ignore = ["E203"]  # keep black-compatible slicing if you ever switch
+
+[tool.ruff.lint.isort]
+known-first-party = ["chorus_stage"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
+plugins = []
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
 warn_unused_configs = true
 ignore_missing_imports = true
 strict_optional = true
+exclude = ["migrations/"]
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,26 +1,41 @@
-"""Data access helpers for posts."""
+"""Data access helpers for working with posts."""
 from __future__ import annotations
-from sqlalchemy.ext.asyncio import AsyncSession
+
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from chorus_stage.models.post import Post
 
+__all__ = ["PostRepository"]
+
+
 class PostRepository:
-    def __init__(self, session: AsyncSession):
+    """Thin wrapper around database access for post entities."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        """Initialize the repository with an async SQLAlchemy session."""
         self.session = session
 
     async def get_by_id(self, post_id: int) -> Post | None:
-        """Fetch a post by id. Returns None if not found."""
-        res = await self.session.execute(select(Post).where(Post.id == post_id))
-        return res.scalars().first()
+        """Return a post by identifier."""
+        result = await self.session.execute(select(Post).where(Post.id == post_id))
+        return result.scalars().first()
 
     async def create(self, *, author_pubkey: bytes, body_md: str, content_hash: bytes, order_index: int) -> Post:
-        """Insert a new post and return it.
+        """Insert a new post and return the persisted ORM instance.
 
-        Pre-conditions:
-        - `author_pubkey` is 32 bytes
-        - `order_index` is monotonically increasing (enforced by caller)
+        Args:
+            author_pubkey: Raw author public key bytes (should be 32 bytes).
+            body_md: Markdown body content.
+            content_hash: SHA-256 digest of the body for deduplication.
+            order_index: Monotonic ordering index supplied by the service layer.
         """
-        p = Post(author_pubkey=author_pubkey, body_md=body_md, content_hash=content_hash, order_index=order_index)
-        self.session.add(p)
+        post = Post(
+            author_pubkey=author_pubkey,
+            body_md=body_md,
+            content_hash=content_hash,
+            order_index=order_index,
+        )
+        self.session.add(post)
         await self.session.flush()
-        return p
+        return post

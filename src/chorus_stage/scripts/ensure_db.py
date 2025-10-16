@@ -1,20 +1,22 @@
-# src/chorus_stage/scripts/ensure_db.py
+"""Utility script to ensure the configured Postgres database exists."""
 from __future__ import annotations
+
 import os
 import sys
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 from psycopg import sql
+
 from chorus_stage.core.settings import settings
 
 
 def normalize_to_psycopg(uri: str) -> str:
     """Return a Postgres URI suitable for psycopg.connect().
 
-    - Strips quotes/whitespace
-    - Converts SQLAlchemy schemes (postgresql+*) to plain 'postgresql'
-    - Recovers from weird parsing when the scheme is present but urlsplit fails
+    - Strips quotes and whitespace.
+    - Converts SQLAlchemy schemes (postgresql+*) to plain "postgresql".
+    - Recovers from odd parsing when the scheme is present but urlsplit fails.
     """
     uri = (uri or "").strip()
     if (uri.startswith("'") and uri.endswith("'")) or (uri.startswith('"') and uri.endswith('"')):
@@ -40,7 +42,7 @@ def normalize_to_psycopg(uri: str) -> str:
 
 
 def _split_db_url(db_url: str) -> tuple[str, str]:
-    """Return (admin_url, target_db). Admin connects to maintenance DB 'postgres'."""
+    """Return `(admin_url, target_db)` using the maintenance database."""
     norm = normalize_to_psycopg(db_url)
     parts = urlsplit(norm)
 
@@ -60,6 +62,7 @@ def _split_db_url(db_url: str) -> tuple[str, str]:
 
 
 def ensure_database_exists(db_url: str) -> None:
+    """Create the configured database if it is missing."""
     admin_url, target_db = _split_db_url(db_url)
 
     if os.getenv("ENSURE_DB_DEBUG") == "1":

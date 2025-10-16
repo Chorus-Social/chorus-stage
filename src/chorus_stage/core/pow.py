@@ -5,9 +5,12 @@ This module defines small puzzle challenges to throttle spammy actions.
 Contracts are designed LeetCode-style for incremental implementation.
 """
 from __future__ import annotations
+
+import hashlib
+import os
+import time
 from dataclasses import dataclass
-from typing import Literal, Tuple
-import os, time, hashlib
+from typing import Literal
 
 Action = Literal["post", "vote", "read"]
 
@@ -32,50 +35,34 @@ class PowChallenge:
     issued_at_ms: int
 
 def generate_challenge(action: Action, target_bits: int | None = None) -> PowChallenge:
-    """Generate a new PoW challenge for `action`.
+    """Generate a new proof-of-work challenge for an action.
 
-    Parameters
-    ----------
-    action : Action
-        The action type.
-    target_bits : int | None
-        Override default difficulty for testing.
+    Args:
+        action: The action the challenge will protect.
+        target_bits: Optional override for the default difficulty.
 
-    Returns
-    -------
-    PowChallenge
-        Challenge parameters to send to the client.
+    Returns:
+        Challenge parameters that can be sent to the client.
 
-    Notes
-    -----
-    - Salt must be unguessable.
-    - Do not store server state here; we validate later with a replay cache.
+    Notes:
+        Salts must remain unguessable and this helper stays stateless; replay tracking
+        can be implemented in higher layers.
     """
     salt = os.urandom(16)
     tb = target_bits if target_bits is not None else 16
     return PowChallenge(action=action, salt=salt, target_bits=tb, issued_at_ms=int(time.time()*1000))
 
 def validate_solution(challenge: PowChallenge, payload_digest: bytes, nonce: int) -> bool:
-    """Validate a proposed PoW solution.
+    """Validate a proposed proof-of-work solution.
 
-    Contract
-    --------
-    Inputs:
-        - challenge: previously issued challenge
-        - payload_digest: SHA-256 digest of the canonical request payload (32 bytes)
-        - nonce: unsigned integer chosen by the client
+    Args:
+        challenge: Previously issued challenge instance.
+        payload_digest: SHA-256 digest of the canonical request payload (32 bytes).
+        nonce: Unsigned integer chosen by the client.
 
-    Output:
-        - bool: True if sha256(salt | payload_digest | nonce_le64) has at least
-                `challenge.target_bits` leading zero bits.
-
-    Edge cases:
-        - payload_digest must be 32 bytes
-        - target_bits > 256 is invalid
-        - nonce can be 0
-
-    Complexity goal:
-        - O(1) verification time, no loops beyond the single hash.
+    Returns:
+        True if `sha256(salt | payload_digest | nonce_le64)` has at least
+        `challenge.target_bits` leading zero bits; False otherwise.
     """
     if len(payload_digest) != 32:
         return False

@@ -1,21 +1,12 @@
-# src/chorus_stage/core/settings.py
+"""Application configuration powered by Pydantic settings."""
 from __future__ import annotations
 
-import os
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator, ValidationInfo
 
 
 class Settings(BaseSettings):
-    """
-    Central configuration for Chorus.
-
-    Notes
-    -----
-    - Reads from .env (and real env vars) by default.
-    - DATABASE_URL should be async for the app: postgresql+asyncpg://...
-      Alembic will coerce to a sync driver internally for migrations.
-    """
+    """Central configuration object for Chorus."""
 
     # App meta
     app_name: str = "Chorus Stage"
@@ -28,7 +19,8 @@ class Settings(BaseSettings):
     # Optional convenience: expose sync URL for tools that need it (derived)
     @property
     def database_url_sync(self) -> str:
-        # Convert asyncpg → psycopg2 for sync tools; otherwise return as-is
+        """Return a sync-friendly connection string if available."""
+        # Convert asyncpg → psycopg2 for sync tools; otherwise return as-is.
         if self.database_url.startswith("postgresql+asyncpg"):
             return self.database_url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
         return self.database_url
@@ -50,7 +42,8 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _ensure_async_driver(cls, v: str) -> str:
-        # The app uses an async engine; encourage async driver in env
+        """Encourage using the async driver for the application engine."""
+        # The app uses an async engine; encourage async driver in env.
         if v.startswith("postgresql://"):
             # Gentle nudge; don’t mutate silently, just warn in logs.
             print("[settings] WARNING: DATABASE_URL is sync; prefer postgresql+asyncpg:// for the app")
@@ -59,6 +52,7 @@ class Settings(BaseSettings):
     @field_validator("recent_window_size", "controversial_min_total", "token_epoch_size", "min_community_denominator")
     @classmethod
     def _positive_int(cls, v: int, info: ValidationInfo) -> int:
+        """Validate that integer configuration values are positive."""
         if v <= 0:
             raise ValueError(f"{info.field_name} must be > 0")
         return v
@@ -66,6 +60,7 @@ class Settings(BaseSettings):
     @field_validator("harmful_hide_threshold", "clear_threshold")
     @classmethod
     def _ratio_0_1(cls, v: float, info: ValidationInfo) -> float:
+        """Ensure ratio-based fields fall within (0, 1]."""
         if not (0.0 < v <= 1.0):
             raise ValueError(f"{info.field_name} must be in (0, 1]")
         return v
@@ -78,4 +73,4 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings() #type: ignore
+settings = Settings()  # type: ignore

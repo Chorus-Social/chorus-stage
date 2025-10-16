@@ -1,26 +1,16 @@
-"""Order index generator.
-
-Implement a monotonic 128-bit counter backed by the database or Redis.
-
-Functions here are deliberately narrow so you can test them in isolation.
-"""
+"""Monotonic order index generator helpers."""
 
 async def next_order_index() -> int:
     """Return the next strictly increasing 128-bit integer.
 
-    Constraints
-    ----------
-    - Monotonic across the entire system.
-    - Survives restarts.
-    - Suitable for sorting (no timestamps required).
+    Returns:
+        The next globally unique order index.
 
-    Implementation notes
-    --------------------
-    MVP may use a Postgres sequence + padding. Later, migrate to a k-ordered ID generator.
+    Raises:
+        NotImplementedError: Always, until persistence is wired up.
 
-    Returns
-    -------
-    int
-        The next order index value.
+    Notes:
+        The eventual implementation should be monotonic across the entire system,
+        survive restarts, and provide a sortable identifier without timestamps.
     """
     raise NotImplementedError("Implement next_order_index()")

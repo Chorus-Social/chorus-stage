@@ -1,7 +1,8 @@
 """Database session and engine factory for SQLAlchemy (async)."""
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -10,6 +11,7 @@ from chorus_stage.core.settings import settings
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
+
     pass
 
 # Import models after Base so they can subclass it without circular imports.
@@ -29,7 +31,7 @@ SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, class_=As
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency that yields an AsyncSession."""
+    """FastAPI dependency that yields an `AsyncSession` and ensures cleanup."""
     async with SessionLocal() as session:
         yield session
 
