@@ -34,6 +34,11 @@ class PowChallenge:
     target_bits: int
     issued_at_ms: int
 
+    @property
+    def salt_hex(self) -> str:
+        """Return the salt encoded as hexadecimal."""
+        return self.salt.hex()
+
 def generate_challenge(action: Action, target_bits: int | None = None) -> PowChallenge:
     """Generate a new proof-of-work challenge for an action.
 

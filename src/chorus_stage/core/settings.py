@@ -74,3 +74,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore
+
+# Backwards-compatible aliases for settings used in tests.
+HARMFUL_HIDE_THRESHOLD = settings.harmful_hide_threshold

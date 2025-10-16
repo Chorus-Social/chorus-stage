@@ -3,19 +3,12 @@ from __future__ import annotations
 
 import binascii
 import hashlib
-from dataclasses import dataclass
 
 from chorus_stage.repositories.post_repo import PostRepository
 from chorus_stage.services.order_index import next_order_index
 from chorus_stage.services.signing import verify_request_signature
-
-
-@dataclass(frozen=True)
-class CreatePostResult:
-    """Lightweight container for the identifier returned from the repository."""
-
-    id: int
-    order_index: int
+from chorus_stage.models.post import Post
+from chorus_stage.schemas.post import PostOut
 
 
 async def create_post(
@@ -25,7 +18,7 @@ async def create_post(
     body_md: str,
     signature_hex: str,
     payload_for_sig: bytes,
-) -> CreatePostResult:
+) -> Post:
     """Create a post after validating the caller's signature.
 
     Args:
@@ -58,4 +51,14 @@ async def create_post(
         content_hash=content_hash,
         order_index=order_index,
     )
-    return CreatePostResult(id=post.id, order_index=int(post.order_index))
+    return post
+
+
+def to_post_out(post: Post) -> PostOut:
+    """Convert a Post ORM instance to an API schema."""
+    return PostOut.model_construct(
+        id=post.id,
+        order_index=int(post.order_index),
+        body_md=post.body_md,
+        author_pubkey_hex=post.author_pubkey.hex(),
+    )

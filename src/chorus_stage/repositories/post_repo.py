@@ -21,6 +21,28 @@ class PostRepository:
         result = await self.session.execute(select(Post).where(Post.id == post_id))
         return result.scalars().first()
 
+    async def list_recent(self, limit: int) -> list[Post]:
+        """Return posts sorted by descending order index."""
+        result = await self.session.execute(
+            select(Post)
+            .where(Post.deleted.is_(False))
+            .order_by(Post.order_index.desc())
+            .limit(limit)
+        )
+        return list(result.scalars())
+
+    async def list_visible(self, limit: int | None = None) -> list[Post]:
+        """Return posts that are not hidden by moderation."""
+        stmt = (
+            select(Post)
+            .where(Post.deleted.is_(False), Post.moderation_state != 2)
+            .order_by(Post.order_index.desc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars())
+
     async def create(self, *, author_pubkey: bytes, body_md: str, content_hash: bytes, order_index: int) -> Post:
         """Insert a new post and return the persisted ORM instance.
 
@@ -37,5 +59,14 @@ class PostRepository:
             order_index=order_index,
         )
         self.session.add(post)
+        await self.session.flush()
+        return post
+
+    async def increment_harmful_votes(self, post_id: int, delta: int = 1) -> Post | None:
+        """Increment the harmful vote counter for a post."""
+        post = await self.get_by_id(post_id)
+        if post is None:
+            return None
+        post.harmful_vote_count += delta
         await self.session.flush()
         return post

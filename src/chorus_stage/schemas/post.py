@@ -8,8 +8,8 @@ class PostCreate(BaseModel):
     """Payload submitted by clients to create a post."""
 
     body_md: str = Field(..., min_length=1, max_length=4000)
-    proof_nonce: int
-    proof_payload_sha256_hex: str
+    proof_nonce: int | None = None
+    proof_payload_sha256_hex: str | None = None
     signature_hex: str
     author_pubkey_hex: str
 

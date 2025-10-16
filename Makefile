@@ -74,7 +74,7 @@ fmt:
 	$(POETRY) run ruff check --fix src
 
 test:
-	$(POETRY) run pytest -q
+	$(POETRY) run pytest -q --asyncio-mode=auto --maxfail=1
 
 clean:
 	@find . -name "__pycache__" -type d -prune -exec rm -rf {} + || true

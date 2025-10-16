@@ -13,11 +13,13 @@ from typing import Final
 from fastapi import APIRouter
 
 # Local imports: keep v1 routing modular and testable
-from . import routes_posts, routes_pow
+from . import routes_feed, routes_moderation, routes_posts, routes_pow
 
 # Single router for v1; sub-routers declare their own tags and responses
 api_v1: Final[APIRouter] = APIRouter()
 api_v1.include_router(routes_pow.router, prefix="/pow")
 api_v1.include_router(routes_posts.router, prefix="/posts")
+api_v1.include_router(routes_feed.router, prefix="/feed")
+api_v1.include_router(routes_moderation.router, prefix="/moderation")
 
 __all__ = ["api_v1"]

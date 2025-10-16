@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from chorus_stage.db.session import get_session
 from chorus_stage.repositories.post_repo import PostRepository
 from chorus_stage.schemas.post import PostCreate, PostOut
-from chorus_stage.services.post_service import create_post
+from chorus_stage.services.post_service import create_post, to_post_out
 
 router = APIRouter(tags=["posts"])
 
@@ -45,7 +45,7 @@ async def create_post_endpoint(
     repo = PostRepository(session)
     try:
         payload_bytes = payload.body_md.encode()
-        result = await create_post(
+        post = await create_post(
             repo=repo,
             author_pubkey_hex=payload.author_pubkey_hex,
             body_md=payload.body_md,
@@ -60,9 +60,4 @@ async def create_post_endpoint(
             detail=str(exc),
         ) from exc
 
-    return PostOut.model_construct(
-        id=result.id,
-        order_index=result.order_index,
-        body_md=payload.body_md,
-        author_pubkey_hex=payload.author_pubkey_hex,
-    )
+    return to_post_out(post)
