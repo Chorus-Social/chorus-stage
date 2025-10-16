@@ -3,14 +3,15 @@ from __future__ import annotations
 import hashlib, binascii
 from dataclasses import dataclass
 
-from chorus.repositories.post_repo import PostRepository
-from chorus.services.order_index import next_order_index
-from chorus.services.signing import verify_request_signature
+from chorus_stage.repositories.post_repo import PostRepository
+from chorus_stage.services.order_index import next_order_index
+from chorus_stage.services.signing import verify_request_signature
 
 @dataclass(frozen=True)
 class CreatePostResult:
     id: int
     order_index: int
+
 
 async def create_post(*, repo: PostRepository, author_pubkey_hex: str, body_md: str,
                       signature_hex: str, payload_for_sig: bytes) -> CreatePostResult:

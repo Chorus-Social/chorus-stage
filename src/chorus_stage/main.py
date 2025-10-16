@@ -11,8 +11,8 @@ This module wires up:
 """
 
 from fastapi import FastAPI
-from chorus.core.settings import settings
-from chorus.api.v1.router import api_v1
+from chorus_stage.core.settings import settings
+from chorus_stage.api.v1.router import api_v1
 
 app = FastAPI(title="Chorus API", version="0.1.0")
 

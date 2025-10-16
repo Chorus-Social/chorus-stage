@@ -4,6 +4,7 @@ All functions are deterministic and side-effect free.
 """
 from __future__ import annotations
 from typing import Optional
+import hashlib
 import binascii
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
@@ -37,3 +38,6 @@ def verify_signature(pubkey_hex: str, message: bytes, signature_hex: str) -> boo
         return True
     except Exception:
         return False
+
+def hash_key(user_key: str) -> str:
+    return hashlib.sha256(user_key.encode("utf-8")).hexdigest()

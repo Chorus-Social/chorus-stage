@@ -2,7 +2,7 @@
 from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from chorus.models.post import Post
+from chorus_stage.models.post import Post
 
 class PostRepository:
     def __init__(self, session: AsyncSession):

@@ -1,5 +1,5 @@
 import binascii
-from chorus.core.pow import generate_challenge, validate_solution
+from chorus_stage.core.pow import generate_challenge, validate_solution
 import hashlib
 
 def test_pow_trivial_solution():

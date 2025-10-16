@@ -4,7 +4,6 @@ Implement a monotonic 128-bit counter backed by the database or Redis.
 
 Functions here are deliberately narrow so you can test them in isolation.
 """
-from __future__ import annotations
 
 async def next_order_index() -> int:
     """Return the next strictly increasing 128-bit integer.

@@ -1,20 +1,39 @@
-"""SQLAlchemy models for votes and moderation logs."""
+# models/vote.py
 from __future__ import annotations
-from sqlalchemy import BigInteger, Column, ForeignKey, SmallInteger, Numeric, Text
-from chorus.db.session import Base
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import BigInteger, SmallInteger, Numeric, ForeignKey, CheckConstraint, Index
+from chorus_stage.db.session import Base
 
-class Vote(Base):
-    __tablename__ = "vote"
-    post_id = Column(BigInteger, ForeignKey("post.id", ondelete="CASCADE"), primary_key=True)
-    voter_pubkey = Column("voter_pubkey", type_=bytes, primary_key=True)  # store as bytea
-    choice = Column(SmallInteger, nullable=False)  # 1 harmful, 0 not
-    weight = Column(Numeric(8,4), nullable=False, default=1.0)
+class PostVote(Base):
+    """Per-user vote on a post.
 
-class ModerationAction(Base):
-    __tablename__ = "moderation_action"
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    post_id = Column(BigInteger, ForeignKey("post.id"))
-    action = Column(SmallInteger, nullable=False)  # 0 soft_hide, 1 hard_remove
-    reason = Column(Text, nullable=False)
-    threshold_snapshot = Column(Text, nullable=False)  # json
-    created_seq = Column(BigInteger, nullable=False)
+    Notes
+    -----
+    - Composite PK (post_id, voter_user_id) prevents duplicate votes.
+    - `direction` is constrained to {1, -1}.
+    - `weight` reserved for future reputation weighting.
+    - No timestamps by design; recency windows use order_index on `post`.
+    """
+    __tablename__ = "post_vote"
+    __table_args__ = (
+        CheckConstraint("direction IN (1, -1)", name="ck_post_vote_direction"),
+        Index("ix_post_vote_post_id", "post_id"),
+    )
+
+    post_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("post.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    voter_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("user_account.id"),
+        primary_key=True,
+    )
+
+    # 1 = upvote, -1 = downvote
+    direction: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    # Future-proof for reputation models; default weight = 1.0
+    weight: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False, default=1.0)

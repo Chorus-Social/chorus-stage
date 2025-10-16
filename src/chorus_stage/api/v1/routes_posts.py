@@ -3,10 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from chorus.db.session import get_session
-from chorus.repositories.post_repo import PostRepository
-from chorus.schemas.post import PostCreate, PostOut
-from chorus.services.post_service import create_post
+from chorus_stage.db.session import get_session
+from chorus_stage.repositories.post_repo import PostRepository
+from chorus_stage.schemas.post import PostCreate, PostOut
+from chorus_stage.services.post_service import create_post
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ async def create_post_endpoint(payload: PostCreate, session: AsyncSession = Depe
         await session.commit()
     except ValueError as e:
         await session.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     return PostOut(
         id=result.id,

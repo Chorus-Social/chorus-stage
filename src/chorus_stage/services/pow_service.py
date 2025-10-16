@@ -2,7 +2,7 @@
 from __future__ import annotations
 import binascii, hashlib
 from typing import Literal
-from chorus.core.pow import PowChallenge, generate_challenge, validate_solution
+from chorus_stage.core.pow import PowChallenge, generate_challenge, validate_solution
 
 Action = Literal["post", "vote", "read"]
 

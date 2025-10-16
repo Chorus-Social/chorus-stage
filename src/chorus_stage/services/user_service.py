@@ -1,8 +1,8 @@
 # src/chorus_stage/crud/users.py
 
 from sqlalchemy.orm import Session
-from chorus_stage.schemas import users as schemas
-from chorus_stage.models import db_models as models
+from chorus_stage.schemas import user as schemas
+from chorus_stage.models import user as models
 from chorus_stage.core import security
 
 # --- READ ---
