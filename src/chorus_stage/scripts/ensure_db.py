@@ -53,7 +53,9 @@ def _split_db_url(db_url: str) -> tuple[str, str]:
     target_db = parts.path.lstrip("/") or "postgres"
 
     if parts.netloc:
-        admin_url = urlunsplit(("postgresql", parts.netloc, "/postgres", parts.query, parts.fragment))
+        admin_url = urlunsplit(
+            ("postgresql", parts.netloc, "/postgres", parts.query, parts.fragment)
+        )
     else:
         # hostless/local-socket style
         admin_url = "postgresql:///postgres"

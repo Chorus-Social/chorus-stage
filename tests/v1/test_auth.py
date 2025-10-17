@@ -95,8 +95,6 @@ def test_login_invalid_user(client, test_user_data) -> None:
 
 def test_login_invalid_signature(client, test_user, test_user_data) -> None:
     """Test login with invalid signature."""
-    nonce = "test_nonce_value"
-
     response = client.post(
         "/api/v1/auth/login",
         params={
@@ -112,7 +110,6 @@ def test_login_invalid_signature(client, test_user, test_user_data) -> None:
 
 def test_login_wrong_signature(client, test_user, test_user_data) -> None:
     """Test login with wrong signature for the nonce."""
-    nonce = "test_nonce_value"
     # Sign a different message to create an invalid signature
     wrong_signature = test_user_data["private_key"].sign(b"different_message").hex()
 

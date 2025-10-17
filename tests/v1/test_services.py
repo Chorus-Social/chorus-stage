@@ -7,6 +7,10 @@ import pytest
 
 from tests.conftest import test_settings
 
+SHA256_HEX_DIGITS = 64
+ED25519_KEY_HEX_LEN = 64
+ED25519_KEY_BYTES = 32
+
 
 def test_pow_service_verification() -> None:
     """Test the proof-of-work verification service."""
@@ -18,12 +22,7 @@ def test_pow_service_verification() -> None:
     pubkey_hex = "a" * 64  # Mock pubkey
     action = "post"
 
-    # Get challenge
-    challenge = pow_service.get_challenge(action, pubkey_hex)
-
-    # Find a nonce that works (slow, for testing only)
-    nonce = 0
-    target = "0" * pow_service.difficulties[action]
+    pow_service.get_challenge(action, pubkey_hex)
 
     # In a real scenario, this would take significant time
     # For testing, we'll override the verify method with a simpler check
@@ -65,14 +64,19 @@ def test_crypto_service_key_validation() -> None:
 def test_moderation_service_update_state(db_session, test_post) -> None:
     """Test the moderation service state updates."""
     from chorus_stage.models import ModerationCase, ModerationVote
+    from chorus_stage.models.moderation import (
+        MODERATION_STATE_CLEARED,
+        MODERATION_STATE_HIDDEN,
+        MODERATION_STATE_OPEN,
+    )
     from chorus_stage.services.moderation import ModerationService
 
     # Create a case
     case = ModerationCase(
         post_id=test_post.id,
         community_id=1,
-        state=0,  # Open
-        opened_order_index=1
+        state=MODERATION_STATE_OPEN,
+        opened_order_index=1,
     )
     db_session.add(case)
 
@@ -82,7 +86,7 @@ def test_moderation_service_update_state(db_session, test_post) -> None:
     # No votes yet - should remain in queue
     moderation_service.update_moderation_state(test_post.id, db_session)
     db_session.refresh(case)
-    assert case.state == 0  # Still in queue
+    assert case.state == MODERATION_STATE_OPEN
 
     # Add some "not harmful" votes
     for i in range(6):
@@ -96,7 +100,7 @@ def test_moderation_service_update_state(db_session, test_post) -> None:
     # Now update state
     moderation_service.update_moderation_state(test_post.id, db_session)
     db_session.refresh(case)
-    assert case.state == 1  # Cleared
+    assert case.state == MODERATION_STATE_CLEARED
 
     # Add "harmful" votes to exceed threshold
     for i in range(6, 13):  # More than twice as many harmful votes
@@ -110,11 +114,11 @@ def test_moderation_service_update_state(db_session, test_post) -> None:
     # Update state again
     moderation_service.update_moderation_state(test_post.id, db_session)
     db_session.refresh(case)
-    assert case.state == 2  # Hidden
+    assert case.state == MODERATION_STATE_HIDDEN
 
     # Check post state is also updated
     db_session.refresh(test_post)
-    assert test_post.moderation_state == 2
+    assert test_post.moderation_state == MODERATION_STATE_HIDDEN
 
 
 def test_replay_protection() -> None:
@@ -195,7 +199,7 @@ mDMEXEcE6RYJKwYBBAHaRw8BAQdAqgE8E7+1A9D4jOe3m0D1FQ2oPzL7Yz3S
     message_bytes = message.encode()
     digest = e2e_service.create_message_digest(message_bytes)
     assert isinstance(digest, str)
-    assert len(digest) == 64  # SHA256 hex digest length
+    assert len(digest) == SHA256_HEX_DIGITS  # SHA256 hex digest length
 
 
 def test_crypto_service_keypair_generation() -> None:
@@ -210,15 +214,15 @@ def test_crypto_service_keypair_generation() -> None:
     # Verify key formats
     assert isinstance(private_key_hex, str)
     assert isinstance(public_key_hex, str)
-    assert len(private_key_hex) == 64  # 32 bytes = 64 hex chars
-    assert len(public_key_hex) == 64  # 32 bytes = 64 hex chars
+    assert len(private_key_hex) == ED25519_KEY_HEX_LEN  # 32 bytes = 64 hex chars
+    assert len(public_key_hex) == ED25519_KEY_HEX_LEN  # 32 bytes = 64 hex chars
 
     # Try to convert back to bytes to verify valid hex
     private_key_bytes = bytes.fromhex(private_key_hex)
     public_key_bytes = bytes.fromhex(public_key_hex)
 
-    assert len(private_key_bytes) == 32
-    assert len(public_key_bytes) == 32
+    assert len(private_key_bytes) == ED25519_KEY_BYTES
+    assert len(public_key_bytes) == ED25519_KEY_BYTES
 
 
 def test_system_clock_increment(db_session) -> None:

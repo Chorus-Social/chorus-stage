@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
 from chorus_stage.models import Post, SystemClock, User
+from chorus_stage.models.moderation import MODERATION_STATE_HIDDEN, MODERATION_STATE_OPEN
 from chorus_stage.schemas.post import PostCreate, PostResponse
 from chorus_stage.services.pow import PowService, get_pow_service
 
@@ -24,9 +25,13 @@ def get_pow_service_dep() -> PowService:
     """Return the shared proof-of-work service."""
     return get_pow_service()
 
+
+SessionDep = Annotated[Session, Depends(get_db)]
+PowServiceDep = Annotated[PowService, Depends(get_pow_service_dep)]
+
 def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
-    db: Session = Depends(get_db)
+    db: SessionDep,
 ) -> User:
     """Get the current authenticated user from JWT token.
 
@@ -67,11 +72,11 @@ def get_current_user(
                 detail="User not found or deleted",
             )
         return user
-    except JWTError:
+    except JWTError as err:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
-        )
+        ) from err
 
 def get_system_clock(db: Session) -> SystemClock:
     """Get or create the system clock entry.
@@ -92,15 +97,15 @@ def get_system_clock(db: Session) -> SystemClock:
 
 @router.get("/", response_model=list[PostResponse])
 async def list_posts(
+    db: SessionDep,
     limit: int = Query(50, le=100, description="Maximum number of posts to return"),
     before: int | None = Query(None, description="Return posts before this order_index"),
     community_slug: str | None = Query(None, description="Filter by community slug"),
-    db: Session = Depends(get_db)
 ) -> list[Post]:
     """List posts in deterministic order with optional filters."""
     query = db.query(Post).filter(
-        Post.deleted == False,
-        Post.moderation_state != 2  # Not hidden
+        Post.deleted.is_(False),
+        Post.moderation_state != MODERATION_STATE_HIDDEN,
     )
 
     # Apply community filter if specified
@@ -128,13 +133,10 @@ async def list_posts(
 @router.get("/{post_id}", response_model=PostResponse)
 async def get_post(
     post_id: int,
-    db: Session = Depends(get_db)
+    db: SessionDep,
 ) -> Post:
     """Get a specific post by ID."""
-    post = db.query(Post).filter(
-        Post.id == post_id,
-        Post.deleted == False
-    ).first()
+    post = db.query(Post).filter(Post.id == post_id, Post.deleted.is_(False)).first()
 
     if not post:
         raise HTTPException(
@@ -147,15 +149,15 @@ async def get_post(
 @router.get("/{post_id}/children", response_model=list[PostResponse])
 async def get_post_children(
     post_id: int,
+    db: SessionDep,
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
-    db: Session = Depends(get_db)
 ) -> list[Post]:
     """Get replies to a post in deterministic order."""
     query = db.query(Post).filter(
         Post.parent_post_id == post_id,
-        Post.deleted == False,
-        Post.moderation_state != 2
+        Post.deleted.is_(False),
+        Post.moderation_state != MODERATION_STATE_HIDDEN,
     )
 
     if before is not None:
@@ -170,9 +172,9 @@ async def get_post_children(
           status_code=status.HTTP_201_CREATED)
 async def create_post(
     post_data: PostCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    pow_service: PowService = Depends(get_pow_service_dep),
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: SessionDep,
+    pow_service: PowServiceDep,
 ) -> Post:
     """Create a new post with proof of work verification."""
     # Verify PoW for posting
@@ -228,8 +230,8 @@ async def create_post(
         community_id=community_id,
         body_md=post_data.content_md,
         content_hash=computed_hash,
-        moderation_state=0,  # Visible
-        harmful_vote_count=0
+        moderation_state=MODERATION_STATE_OPEN,
+        harmful_vote_count=0,
     )
 
     # Increment the clock
@@ -243,14 +245,11 @@ async def create_post(
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
     post_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: SessionDep,
 ) -> None:
     """Soft-delete a post (visible to author only)."""
-    post = db.query(Post).filter(
-        Post.id == post_id,
-        Post.deleted == False
-    ).first()
+    post = db.query(Post).filter(Post.id == post_id, Post.deleted.is_(False)).first()
 
     if not post:
         raise HTTPException(

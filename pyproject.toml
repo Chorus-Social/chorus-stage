@@ -32,6 +32,8 @@ greenlet = "^3.0.3"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
 extend-select = ["I", "F", "E", "W", "UP", "B", "SIM", "PL"]
 ignore = ["E203"]  # keep black-compatible slicing if you ever switch
 

@@ -41,11 +41,13 @@ class UserResponse(BaseModel):
     def _normalize_fields(cls, data: object) -> object:
         if isinstance(data, dict):
             pubkey = data.get("ed25519_pubkey")
-            if isinstance(pubkey, (bytes, bytearray)):
+            if isinstance(pubkey, bytes | bytearray):
                 data["ed25519_pubkey"] = pubkey.hex()
 
             pgp_flag = data.get("pgp_public_key")
-            if isinstance(pgp_flag, (bytes, bytearray)) or pgp_flag is not None and not isinstance(pgp_flag, bool):
+            if isinstance(pgp_flag, bytes | bytearray) or (
+                pgp_flag is not None and not isinstance(pgp_flag, bool)
+            ):
                 data["pgp_public_key"] = bool(pgp_flag)
 
         return data

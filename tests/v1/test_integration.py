@@ -5,10 +5,21 @@
 import base64
 import hashlib
 
+import pytest
 from fastapi import status
 
+from chorus_stage.models.moderation import (
+    MODERATION_STATE_CLEARED,
+    MODERATION_STATE_OPEN,
+)
 
-def test_full_post_flow(client, test_user, auth_token, mock_pow_service, mock_replay_service, db_session) -> None:
+VISIBLE_OR_QUEUE_STATES = {MODERATION_STATE_OPEN, MODERATION_STATE_CLEARED}
+MIN_TWO_POSTS = 2
+
+pytestmark = pytest.mark.usefixtures("mock_pow_service", "mock_replay_service")
+
+
+def test_full_post_flow(client, test_user, auth_token, db_session) -> None:
     """Test the complete flow of creating a post, voting, and moderating."""
     # Create a post
     content = "This is a test post for the full flow"
@@ -80,10 +91,10 @@ def test_full_post_flow(client, test_user, auth_token, mock_pow_service, mock_re
     # Check post is still visible
     response = client.get(f"/api/v1/posts/{post_id}")
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["moderation_state"] in (0, 1)  # Visible or in queue
+    assert response.json()["moderation_state"] in VISIBLE_OR_QUEUE_STATES
 
 
-def test_community_and_posts_flow(client, test_user, auth_token, mock_pow_service, db_session) -> None:
+def test_community_and_posts_flow(client, test_user, auth_token) -> None:
     """Test creating a community and posting to it."""
     # Create a community
     response = client.post(
@@ -135,7 +146,7 @@ def test_community_and_posts_flow(client, test_user, auth_token, mock_pow_servic
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
 
-def test_messaging_flow(client, test_user, other_user, auth_token, other_auth_token, mock_pow_service, db_session) -> None:
+def test_messaging_flow(client, test_user, other_user, auth_token, other_auth_token) -> None:
     """Test the messaging flow between users."""
     # Send a message from test_user to other_user
     ciphertext = base64.b64encode(b"encrypted_message_content").decode()
@@ -171,7 +182,13 @@ def test_messaging_flow(client, test_user, other_user, auth_token, other_auth_to
     assert response.status_code == status.HTTP_200_OK
 
 
-def test_multiple_users_community_interaction(client, test_user, other_user, auth_token, other_auth_token, mock_pow_service, db_session) -> None:
+def test_multiple_users_community_interaction(
+    client,
+    test_user,
+    other_user,
+    auth_token,
+    other_auth_token,
+) -> None:
     """Test multiple users interacting within a community."""
     # Create a community
     response = client.post(
@@ -243,13 +260,13 @@ def test_multiple_users_community_interaction(client, test_user, other_user, aut
     response = client.get(f"/api/v1/communities/{community_id}/posts")
     assert response.status_code == status.HTTP_200_OK
     posts = response.json()
-    assert len(posts) >= 2
+    assert len(posts) >= MIN_TWO_POSTS
     post_ids = [p["id"] for p in posts]
     assert post_id_1 in post_ids
     assert post_id_2 in post_ids
 
 
-def test_complete_anonymous_flow(client, test_user_data, other_user_data, db_session) -> None:
+def test_complete_anonymous_flow(client, test_user_data, other_user_data) -> None:
     """Test a complete anonymous user flow without JWT tokens."""
     # Register test user
     response = client.post(
@@ -342,7 +359,7 @@ def test_complete_anonymous_flow(client, test_user_data, other_user_data, db_ses
     assert len(response.json()) >= 1
 
 
-def test_api_error_handling(client, auth_token, db_session) -> None:
+def test_api_error_handling(client, auth_token) -> None:
     """Test that API properly handles various error cases."""
     # Invalid JSON
     response = client.post(

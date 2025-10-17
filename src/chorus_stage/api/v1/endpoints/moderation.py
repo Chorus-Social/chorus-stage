@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,7 @@ from chorus_stage.models import (
     Post,
     User,
 )
+from chorus_stage.models.moderation import MODERATION_STATE_OPEN
 from chorus_stage.schemas.post import PostResponse
 from chorus_stage.services.moderation import ModerationService
 
@@ -20,16 +23,18 @@ from .posts import get_current_user, get_system_clock
 
 router = APIRouter(prefix="/moderation", tags=["moderation"])
 moderation_service = ModerationService()
+SessionDep = Annotated[Session, Depends(get_db)]
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 @router.get("/queue", response_model=list[PostResponse])
 async def get_moderation_queue(
+    db: SessionDep,
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
-    db: Session = Depends(get_db),
 ) -> list[Post]:
     """Get posts currently in the moderation queue."""
-    query = db.query(ModerationCase).filter(ModerationCase.state == 0)
+    query = db.query(ModerationCase).filter(ModerationCase.state == MODERATION_STATE_OPEN)
 
     if before is not None:
         query = query.filter(ModerationCase.opened_order_index < before)
@@ -42,7 +47,7 @@ async def get_moderation_queue(
 
     return (
         db.query(Post)
-        .filter(Post.id.in_(case_ids), Post.deleted == False)  # noqa: E712
+        .filter(Post.id.in_(case_ids), Post.deleted.is_(False))
         .all()
     )
 
@@ -50,13 +55,13 @@ async def get_moderation_queue(
 @router.post("/trigger", status_code=status.HTTP_201_CREATED)
 async def trigger_moderation(
     post_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: CurrentUserDep,
+    db: SessionDep,
 ) -> dict[str, int | str]:
     """Trigger moderation for a post using a moderation token."""
     post = (
         db.query(Post)
-        .filter(Post.id == post_id, Post.deleted == False)  # noqa: E712
+        .filter(Post.id == post_id, Post.deleted.is_(False))
         .first()
     )
 
@@ -87,7 +92,7 @@ async def trigger_moderation(
         case = ModerationCase(
             post_id=post_id,
             community_id=post.community_id or 1,
-            state=0,
+            state=MODERATION_STATE_OPEN,
             opened_order_index=clock.day_seq,
         )
         clock.day_seq += 1
@@ -111,14 +116,14 @@ async def trigger_moderation(
 @router.post("/vote", status_code=status.HTTP_201_CREATED)
 async def vote_on_moderation(
     post_id: int,
+    current_user: CurrentUserDep,
+    db: SessionDep,
     is_harmful: bool = Query(..., description="Whether the post is considered harmful"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ) -> dict[str, str]:
     """Vote on whether a post is harmful."""
     post = (
         db.query(Post)
-        .filter(Post.id == post_id, Post.deleted == False)  # noqa: E712
+        .filter(Post.id == post_id, Post.deleted.is_(False))
         .first()
     )
 
@@ -134,7 +139,7 @@ async def vote_on_moderation(
         case = ModerationCase(
             post_id=post_id,
             community_id=post.community_id or 1,
-            state=0,
+            state=MODERATION_STATE_OPEN,
             opened_order_index=clock.day_seq,
         )
         clock.day_seq += 1
@@ -172,16 +177,16 @@ async def vote_on_moderation(
 
 @router.get("/history")
 async def get_moderation_history(
+    current_user: CurrentUserDep,
+    db: SessionDep,
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ) -> list[dict[str, int]]:
     """Get moderation history for posts authored by the current user."""
     query = (
         db.query(ModerationCase)
         .join(Post)
-        .filter(Post.author_user_id == current_user.id, Post.deleted == False)  # noqa: E712
+        .filter(Post.author_user_id == current_user.id, Post.deleted.is_(False))
     )
 
     if before is not None:

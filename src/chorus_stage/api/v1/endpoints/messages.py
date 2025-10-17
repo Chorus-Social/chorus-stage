@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc
@@ -24,6 +24,11 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 def get_pow_service_dep() -> PowService:
     """Return the shared proof-of-work service."""
     return get_pow_service()
+
+
+SessionDep = Annotated[Session, Depends(get_db)]
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
+PowServiceDep = Annotated[PowService, Depends(get_pow_service_dep)]
 
 
 def _serialize_message(message: DirectMessage) -> dict[str, Any]:
@@ -46,9 +51,9 @@ def _serialize_message(message: DirectMessage) -> dict[str, Any]:
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def send_message(
     message_data: DirectMessageCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    pow_service: PowService = Depends(get_pow_service_dep),
+    current_user: CurrentUserDep,
+    db: SessionDep,
+    pow_service: PowServiceDep,
 ) -> dict[str, Any]:
     """Send an end-to-end encrypted direct message."""
     try:
@@ -61,7 +66,7 @@ async def send_message(
 
     recipient = (
         db.query(User)
-        .filter(User.ed25519_pubkey == recipient_pubkey, User.deleted == False)  # noqa: E712
+        .filter(User.ed25519_pubkey == recipient_pubkey, User.deleted.is_(False))
         .first()
     )
 
@@ -126,10 +131,10 @@ async def send_message(
 
 @router.get("/inbox")
 async def get_inbox(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUserDep,
+    db: SessionDep,
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
-    db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Get encrypted messages for current user (as recipient)."""
     query = db.query(DirectMessage).filter(
@@ -145,10 +150,10 @@ async def get_inbox(
 
 @router.get("/sent")
 async def get_sent_messages(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUserDep,
+    db: SessionDep,
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
-    db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Get encrypted messages sent by current user."""
     query = db.query(DirectMessage).filter(
@@ -165,8 +170,8 @@ async def get_sent_messages(
 @router.put("/{message_id}/read")
 async def mark_message_read(
     message_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: CurrentUserDep,
+    db: SessionDep,
 ) -> dict[str, str]:
     """Mark a direct message as read/delivered."""
     message = (

@@ -22,6 +22,7 @@ MODERATION_TOKENS_PER_DAY = 3
 HOURS_PER_DAY = 24
 STALE_NONCE_DAYS = 30
 SECONDS_PER_DAY = 86_400
+NONCE_KEY_MIN_PARTS = 3
 
 
 def refresh_moderation_tokens(db: Session) -> None:
@@ -72,7 +73,7 @@ def cleanup_old_nonces() -> None:
         # If key has a TTL we're fine, otherwise manually clean very old ones
         if ttl == -1:  # No expiry set
             parts = key.split(':')
-            if len(parts) >= 3:
+            if len(parts) >= NONCE_KEY_MIN_PARTS:
                 try:
                     day_seq = int(parts[2])
                     current_day = int(time.time() // SECONDS_PER_DAY)

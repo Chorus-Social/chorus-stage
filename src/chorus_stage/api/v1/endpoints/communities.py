@@ -3,20 +3,26 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from chorus_stage.db.session import get_db
 from chorus_stage.models import Community, CommunityMember, Post, User
+from chorus_stage.models.moderation import MODERATION_STATE_HIDDEN
 from chorus_stage.schemas.community import CommunityCreate, CommunityResponse
 from chorus_stage.schemas.post import PostResponse
 
 from .posts import get_current_user
 
 router = APIRouter(prefix="/communities", tags=["communities"])
+SessionDep = Annotated[Session, Depends(get_db)]
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
 
 @router.get("/", response_model=list[CommunityResponse])
-async def list_communities(db: Session = Depends(get_db)) -> list[Community]:
+async def list_communities(db: SessionDep) -> list[Community]:
     """List all communities."""
     communities = db.query(Community).order_by(Community.order_index).all()
     return communities
@@ -24,7 +30,7 @@ async def list_communities(db: Session = Depends(get_db)) -> list[Community]:
 @router.get("/{community_id}", response_model=CommunityResponse)
 async def get_community(
     community_id: int,
-    db: Session = Depends(get_db)
+    db: SessionDep,
 ) -> Community:
     """Get a specific community by ID."""
     community = db.query(Community).filter(Community.id == community_id).first()
@@ -40,8 +46,8 @@ async def get_community(
           status_code=status.HTTP_201_CREATED)
 async def create_community(
     community_data: CommunityCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    _current_user: CurrentUserDep,
+    db: SessionDep,
 ) -> Community:
     """Create a new community."""
     # Check if slug already exists
@@ -78,8 +84,8 @@ async def create_community(
 @router.post("/{community_id}/join", status_code=status.HTTP_201_CREATED)
 async def join_community(
     community_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: CurrentUserDep,
+    db: SessionDep,
 ) -> dict[str, str]:
     """Join a community."""
     # Check if community exists
@@ -115,8 +121,8 @@ async def join_community(
 @router.delete("/{community_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
 async def leave_community(
     community_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: CurrentUserDep,
+    db: SessionDep,
 ) -> None:
     """Leave a community."""
     # Check if a member
@@ -138,9 +144,9 @@ async def leave_community(
 @router.get("/{community_id}/posts", response_model=list[PostResponse])
 async def get_community_posts(
     community_id: int,
+    db: SessionDep,
     limit: int = 50,
     before: int | None = None,
-    db: Session = Depends(get_db)
 ) -> list[Post]:
     """Get posts from a specific community."""
     from sqlalchemy import desc
@@ -149,8 +155,8 @@ async def get_community_posts(
 
     query = db.query(Post).filter(
         Post.community_id == community_id,
-        Post.deleted == False,
-        Post.moderation_state != 2
+        Post.deleted.is_(False),
+        Post.moderation_state != MODERATION_STATE_HIDDEN,
     )
 
     if before is not None:

@@ -22,14 +22,26 @@ class Post(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Global monotonic index for sorting without relying on timestamps.
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
-    author_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("user_account.id"), nullable=True)
+    author_user_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("user_account.id"),
+        nullable=True,
+    )
     author_pubkey: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
     # Parent chain for comments; top-level posts have parent_post_id = NULL.
-    parent_post_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("post.id"), nullable=True)
+    parent_post_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("post.id"),
+        nullable=True,
+    )
 
     # Every post belongs to a community (including user profile communities).
-    community_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("community.id"), nullable=True)
+    community_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("community.id"),
+        nullable=True,
+    )
 
     # Text only; links are literal URLs inside markdown.
     body_md: Mapped[str] = mapped_column(Text, nullable=False)

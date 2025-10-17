@@ -30,8 +30,8 @@ class CryptoService:
         """
         try:
             return bytes.fromhex(pubkey_hex)
-        except ValueError as e:
-            raise ValueError(f"Invalid public key format: {e}")
+        except ValueError as err:
+            raise ValueError(f"Invalid public key format: {err}") from err
 
     @staticmethod
     def verify(pubkey_bytes: bytes, message: str, signature: bytes) -> bool:

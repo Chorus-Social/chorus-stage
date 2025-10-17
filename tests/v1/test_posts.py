@@ -5,10 +5,13 @@
 import hashlib
 from unittest.mock import patch
 
+import pytest
 from fastapi import status
 
+pytestmark = pytest.mark.usefixtures("mock_pow_service")
 
-def test_create_post_success(client, test_user, auth_token, mock_pow_service, db_session) -> None:
+
+def test_create_post_success(client, test_user, auth_token) -> None:
     """Test successful post creation."""
     content = "Test post content"
     content_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -30,7 +33,7 @@ def test_create_post_success(client, test_user, auth_token, mock_pow_service, db
     assert data["content_hash"] == content_hash
 
 
-def test_create_post_invalid_pow(client, test_user, auth_token, db_session) -> None:
+def test_create_post_invalid_pow(client, test_user, auth_token) -> None:
     """Test post creation with invalid proof of work."""
     with patch("chorus_stage.services.pow.PowService") as mock_pow:
         mock_pow.return_value.verify_pow.return_value = False
@@ -52,7 +55,7 @@ def test_create_post_invalid_pow(client, test_user, auth_token, db_session) -> N
         assert "Invalid proof of work" in response.json()["detail"]
 
 
-def test_create_post_invalid_hash(client, test_user, auth_token, mock_pow_service, db_session) -> None:
+def test_create_post_invalid_hash(client, test_user, auth_token) -> None:
     """Test post creation with invalid content hash."""
     content = "Test post content"
     invalid_hash = "invalid_hash_value"
@@ -71,7 +74,7 @@ def test_create_post_invalid_hash(client, test_user, auth_token, mock_pow_servic
     assert "Content hash does not match" in response.json()["detail"]
 
 
-def test_create_post_in_community(client, test_user, auth_token, community, mock_pow_service, db_session) -> None:
+def test_create_post_in_community(client, test_user, auth_token, community) -> None:
     """Test creating a post within a specific community."""
     content = "Test post in community"
     content_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -93,7 +96,7 @@ def test_create_post_in_community(client, test_user, auth_token, community, mock
     assert data["community_id"] == community.id
 
 
-def test_create_post_in_nonexistent_community(client, test_user, auth_token, mock_pow_service, db_session) -> None:
+def test_create_post_in_nonexistent_community(client, test_user, auth_token) -> None:
     """Test creating a post in a non-existent community."""
     content = "Test post in nonexistent community"
     content_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -113,7 +116,7 @@ def test_create_post_in_nonexistent_community(client, test_user, auth_token, moc
     assert "Community not found" in response.json()["detail"]
 
 
-def test_get_posts(client, db_session, test_post) -> None:
+def test_get_posts(client, test_post) -> None:
     """Test retrieving a list of posts."""
     response = client.get("/api/v1/posts/")
     assert response.status_code == status.HTTP_200_OK
@@ -124,7 +127,7 @@ def test_get_posts(client, db_session, test_post) -> None:
         assert "body_md" in data[0]
 
 
-def test_get_specific_post(client, db_session, test_post) -> None:
+def test_get_specific_post(client, test_post) -> None:
     """Test retrieving a specific post by ID."""
     response = client.get(f"/api/v1/posts/{test_post.id}")
     assert response.status_code == status.HTTP_200_OK
@@ -139,9 +142,8 @@ def test_get_nonexistent_post(client) -> None:
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_get_post_children(client, db_session, test_user, test_post, mock_pow_service, setup_system_clock) -> None:
+def test_get_post_children(client, db_session, test_user, test_post, setup_system_clock) -> None:
     """Test retrieving replies to a post."""
-    import hashlib
 
     from chorus_stage.models import Post
 
@@ -180,7 +182,7 @@ def test_delete_own_post(client, test_user, auth_token, test_post, db_session) -
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
 
-def test_delete_other_post(client, test_user, other_user, auth_token, other_auth_token, test_post, db_session) -> None:
+def test_delete_other_post(client, test_user, other_auth_token, test_post, db_session) -> None:
     """Test deleting a post by someone other than the author."""
     # Ensure the test post belongs to the test user, not the other user
     test_post.author_user_id = test_user.id

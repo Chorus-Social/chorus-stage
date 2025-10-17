@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 
 from chorus_stage.core.settings import settings
 from chorus_stage.models import ModerationCase, ModerationVote, Post
+from chorus_stage.models.moderation import (
+    MODERATION_STATE_CLEARED,
+    MODERATION_STATE_HIDDEN,
+    MODERATION_STATE_OPEN,
+)
 
 
 class ModerationService:
@@ -54,12 +59,11 @@ class ModerationService:
         hide_ratio = thresholds["hide_ratio"]
 
         if total_votes < min_votes:  # Not enough votes yet
-            new_state = 0  # Still in queue
+            new_state = MODERATION_STATE_OPEN
         elif harmful_votes > not_harmful_votes * hide_ratio:
-            # Harmful votes exceed threshold
-            new_state = 2  # Hidden
+            new_state = MODERATION_STATE_HIDDEN
         else:
-            new_state = 1  # Cleared (not harmful)
+            new_state = MODERATION_STATE_CLEARED
 
         # Update if state changed
         if case.state != new_state:
@@ -68,7 +72,7 @@ class ModerationService:
             # Update post moderation state as well
             if post:
                 post.moderation_state = new_state
-                if new_state == 2:  # If hidden
+                if new_state == MODERATION_STATE_HIDDEN:
                     case.closed_order_index = post.order_index
                     case.closed_at = datetime.now(UTC)
 

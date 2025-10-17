@@ -5,7 +5,7 @@
 from fastapi import status
 
 
-def test_list_communities(client, community, db_session) -> None:
+def test_list_communities(client, community) -> None:
     """Test listing all communities."""
     response = client.get("/api/v1/communities/")
     assert response.status_code == status.HTTP_200_OK
@@ -16,7 +16,7 @@ def test_list_communities(client, community, db_session) -> None:
     assert any(c["internal_slug"] == community.internal_slug for c in data)
 
 
-def test_get_community(client, community, db_session) -> None:
+def test_get_community(client, community) -> None:
     """Test getting a specific community."""
     response = client.get(f"/api/v1/communities/{community.id}")
     assert response.status_code == status.HTTP_200_OK
@@ -31,7 +31,7 @@ def test_get_nonexistent_community(client) -> None:
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_create_community(client, test_user, auth_token, mock_pow_service, db_session) -> None:
+def test_create_community(client, auth_token) -> None:
     """Test creating a new community."""
     response = client.post(
         "/api/v1/communities/",
@@ -49,7 +49,7 @@ def test_create_community(client, test_user, auth_token, mock_pow_service, db_se
     assert data["description_md"] == "A new test community"
 
 
-def test_create_duplicate_community(client, test_user, auth_token, community, db_session) -> None:
+def test_create_duplicate_community(client, auth_token, community) -> None:
     """Test creating a community with a duplicate slug."""
     response = client.post(
         "/api/v1/communities/",
@@ -63,7 +63,7 @@ def test_create_duplicate_community(client, test_user, auth_token, community, db
     assert "already exists" in response.json()["detail"]
 
 
-def test_join_community(client, test_user, auth_token, community, db_session) -> None:
+def test_join_community(client, auth_token, community) -> None:
     """Test joining a community."""
     response = client.post(
         f"/api/v1/communities/{community.id}/join",
@@ -73,7 +73,7 @@ def test_join_community(client, test_user, auth_token, community, db_session) ->
     assert response.json()["status"] == "joined"
 
 
-def test_join_same_community_twice(client, test_user, auth_token, community, db_session) -> None:
+def test_join_same_community_twice(client, auth_token, community) -> None:
     """Test joining a community twice."""
     # First join should succeed
     client.post(f"/api/v1/communities/{community.id}/join", headers=auth_token)
@@ -87,7 +87,7 @@ def test_join_same_community_twice(client, test_user, auth_token, community, db_
     assert "Already a member" in response.json()["detail"]
 
 
-def test_leave_community(client, test_user, auth_token, community, db_session) -> None:
+def test_leave_community(client, auth_token, community) -> None:
     """Test leaving a community."""
     # Join first
     client.post(f"/api/v1/communities/{community.id}/join", headers=auth_token)
@@ -97,7 +97,7 @@ def test_leave_community(client, test_user, auth_token, community, db_session) -
     assert response.status_code == status.HTTP_204_NO_CONTENT
 
 
-def test_leave_community_not_joined(client, test_user, auth_token, community, db_session) -> None:
+def test_leave_community_not_joined(client, auth_token, community) -> None:
     """Test leaving a community the user hasn't joined."""
     response = client.delete(
         f"/api/v1/communities/{community.id}/leave",
@@ -107,7 +107,7 @@ def test_leave_community_not_joined(client, test_user, auth_token, community, db
     assert "Not a member" in response.json()["detail"]
 
 
-def test_get_community_posts(client, db_session, test_user, test_post, community) -> None:
+def test_get_community_posts(client, db_session, test_post, community) -> None:
     """Test getting posts from a specific community."""
     # Add post to community
     test_post.community_id = community.id
@@ -121,7 +121,7 @@ def test_get_community_posts(client, db_session, test_user, test_post, community
     assert any(p["id"] == test_post.id for p in data)
 
 
-def test_multiple_users_in_community(client, test_user, other_user, auth_token, other_auth_token, community, db_session) -> None:
+def test_multiple_users_in_community(client, auth_token, other_auth_token, community) -> None:
     """Test multiple users joining the same community."""
     # First user joins
     client.post(f"/api/v1/communities/{community.id}/join", headers=auth_token)

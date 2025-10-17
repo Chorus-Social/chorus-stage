@@ -32,9 +32,7 @@ target_metadata = Base.metadata
 
 def include_object(obj, name, type_, reflected, compare_to):
     """Exclude Alembic's own bookkeeping table from autogenerate output."""
-    if type_ == "table" and name == "alembic_version":
-        return False
-    return True
+    return not (type_ == "table" and name == "alembic_version")
 
 
 def run_migrations_offline() -> None:

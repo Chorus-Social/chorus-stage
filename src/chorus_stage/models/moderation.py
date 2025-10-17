@@ -9,6 +9,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from chorus_stage.db.session import Base
 from chorus_stage.db.time import utcnow
 
+MODERATION_STATE_OPEN = 0
+MODERATION_STATE_CLEARED = 1
+MODERATION_STATE_HIDDEN = 2
+
 
 class ModerationCase(Base):
     """State machine representing the moderation status of a post."""
@@ -21,9 +25,13 @@ class ModerationCase(Base):
         ForeignKey("post.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    community_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("community.id"), nullable=False)
+    community_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("community.id"),
+        nullable=False,
+    )
     # 0 = open, 1 = cleared (not harmful), 2 = hidden (harmful).
-    state: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    state: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=MODERATION_STATE_OPEN)
     # Snapshot numbers for audit without relying on timestamps.
     opened_order_index: Mapped[int] = mapped_column(Numeric(38, 0), nullable=False)
     closed_order_index: Mapped[int | None] = mapped_column(Numeric(38, 0), nullable=True)
@@ -40,7 +48,11 @@ class ModerationVote(Base):
         ForeignKey("moderation_case.post_id", ondelete="CASCADE"),
         primary_key=True,
     )
-    voter_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user_account.id"), primary_key=True)
+    voter_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("user_account.id"),
+        primary_key=True,
+    )
     # 1 = harmful, 0 = not harmful.
     choice: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     weight: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False, default=1.0)

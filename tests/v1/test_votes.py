@@ -4,10 +4,13 @@
 
 from unittest.mock import patch
 
+import pytest
 from fastapi import status
 
+pytestmark = pytest.mark.usefixtures("mock_pow_service", "mock_replay_service")
 
-def test_cast_upvote(client, test_user, auth_token, test_post, mock_pow_service, mock_replay_service, db_session) -> None:
+
+def test_cast_upvote(client, auth_token, test_post) -> None:
     """Test casting an upvote on a post."""
     response = client.post(
         "/api/v1/votes/",
@@ -22,7 +25,7 @@ def test_cast_upvote(client, test_user, auth_token, test_post, mock_pow_service,
     assert response.status_code == status.HTTP_201_CREATED
 
 
-def test_cast_downvote(client, test_user, auth_token, test_post, mock_pow_service, mock_replay_service, db_session) -> None:
+def test_cast_downvote(client, auth_token, test_post) -> None:
     """Test casting a downvote on a post."""
     response = client.post(
         "/api/v1/votes/",
@@ -37,7 +40,7 @@ def test_cast_downvote(client, test_user, auth_token, test_post, mock_pow_servic
     assert response.status_code == status.HTTP_201_CREATED
 
 
-def test_vote_invalid_direction(client, test_user, auth_token, test_post, mock_pow_service, mock_replay_service, db_session) -> None:
+def test_vote_invalid_direction(client, auth_token, test_post) -> None:
     """Test voting with invalid direction."""
     response = client.post(
         "/api/v1/votes/",
@@ -52,7 +55,7 @@ def test_vote_invalid_direction(client, test_user, auth_token, test_post, mock_p
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-def test_vote_nonexistent_post(client, test_user, auth_token, mock_pow_service, mock_replay_service, db_session) -> None:
+def test_vote_nonexistent_post(client, auth_token) -> None:
     """Test voting on a non-existent post."""
     response = client.post(
         "/api/v1/votes/",
@@ -67,7 +70,7 @@ def test_vote_nonexistent_post(client, test_user, auth_token, mock_pow_service, 
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_replay_vote(client, test_user, auth_token, test_post, mock_pow_service, db_session) -> None:
+def test_replay_vote(client, auth_token, test_post) -> None:
     """Test that voting with the same nonce is rejected."""
     # First vote should succeed
     with patch("chorus_stage.services.replay.ReplayProtectionService") as mock_replay:
@@ -102,7 +105,7 @@ def test_replay_vote(client, test_user, auth_token, test_post, mock_pow_service,
         assert "already been processed" in response.json()["detail"]
 
 
-def test_change_vote_direction(client, test_user, auth_token, test_post, mock_pow_service, mock_replay_service, db_session) -> None:
+def test_change_vote_direction(client, auth_token, test_post) -> None:
     """Test changing the direction of a vote."""
     # Cast an upvote
     client.post(
@@ -135,7 +138,7 @@ def test_change_vote_direction(client, test_user, auth_token, test_post, mock_po
     assert response.json()["direction"] == -1
 
 
-def test_remove_vote(client, test_user, auth_token, test_post, mock_pow_service, mock_replay_service, db_session) -> None:
+def test_remove_vote(client, auth_token, test_post) -> None:
     """Test removing a vote by voting the same direction again."""
     # Cast an upvote
     client.post(
@@ -168,7 +171,7 @@ def test_remove_vote(client, test_user, auth_token, test_post, mock_pow_service,
     assert response.json()["direction"] == 0  # 0 means no vote
 
 
-def test_vote_on_same_post_multiple_times(client, test_user, auth_token, test_post, mock_pow_service, mock_replay_service, db_session) -> None:
+def test_vote_on_same_post_multiple_times(client, auth_token, test_post) -> None:
     """Test that voting multiple times on the same post updates the vote."""
     # First upvote
     client.post(

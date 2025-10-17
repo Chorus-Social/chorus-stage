@@ -1,21 +1,15 @@
-"""
+"""Alembic revision 7ff6d5cbf5b0."""
 
-Revision ID: 7ff6d5cbf5b0
-Revises: 4b819fc59ba9
-Create Date: 2025-10-17 09:01:07.079228
+from collections.abc import Sequence
 
-"""
-from typing import Sequence, Union
-
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '7ff6d5cbf5b0'
-down_revision: Union[str, Sequence[str], None] = '4b819fc59ba9'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = '4b819fc59ba9'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -41,7 +35,14 @@ def upgrade() -> None:
                type_=sa.Integer(),
                existing_nullable=False,
                autoincrement=True)
-    op.add_column('moderation_case', sa.Column('closed_order_index', sa.Numeric(precision=38, scale=0), nullable=True))
+    op.add_column(
+        'moderation_case',
+        sa.Column(
+            'closed_order_index',
+            sa.Numeric(precision=38, scale=0),
+            nullable=True,
+        ),
+    )
     op.add_column('moderation_case', sa.Column('created_at', sa.DateTime(), nullable=False))
     op.add_column('moderation_case', sa.Column('closed_at', sa.DateTime(), nullable=True))
     op.add_column('moderation_trigger', sa.Column('created_at', sa.DateTime(), nullable=False))

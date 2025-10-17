@@ -41,16 +41,16 @@ class PostResponse(BaseModel):
     def _decode_binary_fields(cls, data: object) -> object:
         if not isinstance(data, dict):
             extracted: dict[str, object | None] = {}
-            for field_name in cls.model_fields.keys():
+            for field_name in cls.model_fields:
                 extracted[field_name] = getattr(data, field_name, None)
             data = extracted
 
         author = data.get("author_pubkey")
-        if isinstance(author, (bytes, bytearray)):
+        if isinstance(author, bytes | bytearray):
             data["author_pubkey"] = author.hex()
 
         content_hash = data.get("content_hash")
-        if isinstance(content_hash, (bytes, bytearray)):
+        if isinstance(content_hash, bytes | bytearray):
             data["content_hash"] = content_hash.hex()
 
         return data

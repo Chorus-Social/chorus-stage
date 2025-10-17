@@ -1,21 +1,12 @@
-"""safety regeneration after cleanup
+"""Alembic revision 4b819fc59ba9."""
 
-Revision ID: 4b819fc59ba9
-Revises: 268edf5d8afe
-Create Date: 2025-10-16 20:41:50.798532
-
-"""
-from typing import Sequence, Union
-
-from alembic import op
-import sqlalchemy as sa
-
+from collections.abc import Sequence
 
 # revision identifiers, used by Alembic.
 revision: str = '4b819fc59ba9'
-down_revision: Union[str, Sequence[str], None] = '268edf5d8afe'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = '268edf5d8afe'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

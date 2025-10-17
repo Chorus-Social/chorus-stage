@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from itertools import count
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -22,8 +22,9 @@ from chorus_stage.api.v1.endpoints import messages as messages_endpoints
 from chorus_stage.api.v1.endpoints import posts as posts_endpoints
 from chorus_stage.api.v1.endpoints import votes as votes_endpoints
 from chorus_stage.api.v1.endpoints.auth import create_access_token
-from chorus_stage.db.session import Base, get_db as app_get_session
 from chorus_stage.core.settings import Settings
+from chorus_stage.db.session import Base
+from chorus_stage.db.session import get_db as app_get_session
 from chorus_stage.main import app as fastapi_app
 from chorus_stage.models import Community, DirectMessage, Post, SystemClock, User
 

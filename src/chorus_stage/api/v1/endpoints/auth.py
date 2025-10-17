@@ -2,7 +2,7 @@
 """Authentication endpoints for the Chorus API."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from jose import jwt
@@ -16,6 +16,8 @@ from chorus_stage.services.crypto import CryptoService
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 crypto_service = CryptoService()
+SessionDep = Annotated[Session, Depends(get_db)]
+SignatureHeader = Annotated[str, Header(..., description="Ed25519 signature of server challenge")]
 
 
 def create_access_token(data: dict[str, Any]) -> str:
@@ -44,7 +46,7 @@ def create_access_token(data: dict[str, Any]) -> str:
 )
 async def register_user(
     user_data: UserIdentity,
-    db: Session = Depends(get_db)
+    db: SessionDep,
 ) -> dict[str, Any]:
     """Register a new user with an Ed25519 public key.
 
@@ -56,18 +58,20 @@ async def register_user(
         pubkey_bytes = crypto_service.validate_and_decode_pubkey(
             user_data.ed25519_pubkey
         )
-    except ValueError as e:
+    except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+            detail=str(err),
+        ) from err
 
-    if user_data.pgp_public_key_asc is not None:
-        if not user_data.pgp_public_key_asc.strip().startswith("-----BEGIN PGP PUBLIC KEY BLOCK"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="PGP public key must be in ASCII armor format",
-            )
+    if (
+        user_data.pgp_public_key_asc is not None
+        and not user_data.pgp_public_key_asc.strip().startswith("-----BEGIN PGP PUBLIC KEY BLOCK")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="PGP public key must be in ASCII armor format",
+        )
 
     # Check if public key already exists
     existing_user = db.query(User).filter(
@@ -123,8 +127,8 @@ async def register_user(
           status_code=status.HTTP_200_OK)
 async def login_user(
     ed25519_pubkey: str,
-    signature: str = Header(..., description="Ed25519 signature of server challenge"),
-    db: Session = Depends(get_db)
+    signature: SignatureHeader,
+    db: SessionDep,
 ) -> dict[str, str]:
     """Authenticate using Ed25519 signature challenge.
 
@@ -138,11 +142,11 @@ async def login_user(
         pubkey_bytes = crypto_service.validate_and_decode_pubkey(
             ed25519_pubkey
         )
-    except ValueError as e:
+    except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+            detail=str(err),
+        ) from err
 
     # Find user by public key
     user = db.query(User).filter(
@@ -158,11 +162,11 @@ async def login_user(
     # message appended to the 64-byte signature payload, so strip that off if present.
     try:
         raw_signature = bytes.fromhex(signature)
-    except ValueError:
+    except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid signature format"
-        )
+            detail="Invalid signature format",
+        ) from err
 
     challenge_message = settings.login_challenge
     message_bytes = challenge_message.encode()

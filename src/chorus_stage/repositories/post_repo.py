@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chorus_stage.models.moderation import MODERATION_STATE_HIDDEN
 from chorus_stage.models.post import Post
 
 __all__ = ["PostRepository"]
@@ -33,17 +34,24 @@ class PostRepository:
 
     async def list_visible(self, limit: int | None = None) -> list[Post]:
         """Return posts that are not hidden by moderation."""
-        stmt = (
-            select(Post)
-            .where(Post.deleted.is_(False), Post.moderation_state != 2)
-            .order_by(Post.order_index.desc())
+        stmt = select(Post).where(
+            Post.deleted.is_(False),
+            Post.moderation_state != MODERATION_STATE_HIDDEN,
         )
+        stmt = stmt.order_by(Post.order_index.desc())
         if limit is not None:
             stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars())
 
-    async def create(self, *, author_pubkey: bytes, body_md: str, content_hash: bytes, order_index: int) -> Post:
+    async def create(
+        self,
+        *,
+        author_pubkey: bytes,
+        body_md: str,
+        content_hash: bytes,
+        order_index: int,
+    ) -> Post:
         """Insert a new post and return the persisted ORM instance.
 
         Args:

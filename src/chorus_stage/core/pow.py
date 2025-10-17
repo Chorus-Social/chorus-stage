@@ -13,6 +13,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 Action = Literal["post", "vote", "read"]
+DEFAULT_TARGET_BITS = 16
+SHA256_DIGEST_BYTES = 32
+MAX_TARGET_BITS = 256
+NONCE_SIZE_BYTES = 8
+MILLISECONDS_PER_SECOND = 1000
 
 @dataclass(frozen=True)
 class PowChallenge:
@@ -54,8 +59,13 @@ def generate_challenge(action: Action, target_bits: int | None = None) -> PowCha
         can be implemented in higher layers.
     """
     salt = os.urandom(16)
-    tb = target_bits if target_bits is not None else 16
-    return PowChallenge(action=action, salt=salt, target_bits=tb, issued_at_ms=int(time.time()*1000))
+    tb = target_bits if target_bits is not None else DEFAULT_TARGET_BITS
+    return PowChallenge(
+        action=action,
+        salt=salt,
+        target_bits=tb,
+        issued_at_ms=int(time.time() * MILLISECONDS_PER_SECOND),
+    )
 
 def validate_solution(challenge: PowChallenge, payload_digest: bytes, nonce: int) -> bool:
     """Validate a proposed proof-of-work solution.
@@ -69,12 +79,12 @@ def validate_solution(challenge: PowChallenge, payload_digest: bytes, nonce: int
         True if `sha256(salt | payload_digest | nonce_le64)` has at least
         `challenge.target_bits` leading zero bits; False otherwise.
     """
-    if len(payload_digest) != 32:
+    if len(payload_digest) != SHA256_DIGEST_BYTES:
         return False
-    if not (0 <= challenge.target_bits <= 256):
+    if not (0 <= challenge.target_bits <= MAX_TARGET_BITS):
         return False
 
-    nonce_bytes = nonce.to_bytes(8, "little", signed=False)
+    nonce_bytes = nonce.to_bytes(NONCE_SIZE_BYTES, "little", signed=False)
     h = hashlib.sha256(challenge.salt + payload_digest + nonce_bytes).digest()
 
     # Count leading zero bits

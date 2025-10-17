@@ -23,7 +23,11 @@ class E2EMessageService:
         return pubkey_asc.strip().startswith("-----BEGIN PGP PUBLIC KEY BLOCK")
 
     @staticmethod
-    def encrypt_message(message: str, recipient_pubkey_asc: str, sender_privkey_asc: str | None = None) -> str:
+    def encrypt_message(
+        message: str,
+        recipient_pubkey_asc: str,
+        sender_privkey_asc: str | None = None,
+    ) -> str:
         """Encrypt a message for a recipient using their PGP key.
 
         Args:
