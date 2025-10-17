@@ -1,79 +1,72 @@
-"""Application configuration powered by Pydantic settings."""
-from __future__ import annotations
+"""Application settings and configuration."""
 
-from pydantic import ValidationInfo, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Central configuration object for Chorus."""
+    """Application settings loaded from environment variables."""
 
-    # App meta
-    app_name: str = "Chorus Stage"
-    app_version: str = "0.0.1"
-    admin_email: str | None = None
+    app_name: str = Field(default="Chorus Stage", alias="APP_NAME")
+    app_version: str = Field(default="0.1.0", alias="APP_VERSION")
+    admin_email: str | None = Field(default=None, alias="ADMIN_EMAIL")
 
-    # Database
-    database_url: str = "postgresql+asyncpg://chorus:is-cool@localhost:5432/chorus"
+    secret_key: str = Field(
+        default="CHANGE_ME_IN_PRODUCTION_USE_ENVIRONMENT_VARIABLE",
+        alias="SECRET_KEY",
+    )
+    debug: bool = Field(default=False, alias="DEBUG")
 
-    # Optional convenience: expose sync URL for tools that need it (derived)
-    @property
-    def database_url_sync(self) -> str:
-        """Return a sync-friendly connection string if available."""
-        # Convert asyncpg → psycopg2 for sync tools; otherwise return as-is.
-        if self.database_url.startswith("postgresql+asyncpg"):
-            return self.database_url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
-        return self.database_url
+    database_url: str = Field(default="sqlite:///./chorus.db", alias="DATABASE_URL")
+    sql_debug: bool = Field(default=False, alias="SQL_DEBUG")
 
-    # Container defaults (not required for the app, but handy if you spin up compose)
-    postgres_db: str | None = None
-    postgres_user: str | None = None
-    postgres_password: str | None = None
+    postgres_db: str | None = Field(default=None, alias="POSTGRES_DB")
+    postgres_user: str | None = Field(default=None, alias="POSTGRES_USER")
+    postgres_password: str | None = Field(default=None, alias="POSTGRES_PASSWORD")
 
-    # Feed & moderation knobs (timestamp-free)
-    recent_window_size: int = 50                  # N most-recent posts for rising/controversial
-    controversial_min_total: int = 5              # minimum total votes to consider controversial
-    token_epoch_size: int = 10_000                # posts per moderation-token reset epoch
-    harmful_hide_threshold: float = 0.02          # fraction of community members required to hide
-    clear_threshold: float = 0.6                  # fraction voting "not harmful" to clear
-    min_community_denominator: int = 50           # floor for tiny communities and user profiles
+    redis_url: str = Field(default="redis://localhost:6379", alias="REDIS_URL")
 
-    # Validators
-    @field_validator("database_url")
-    @classmethod
-    def _ensure_async_driver(cls, v: str) -> str:
-        """Encourage using the async driver for the application engine."""
-        # The app uses an async engine; encourage async driver in env.
-        if v.startswith("postgresql://"):
-            # Gentle nudge; don’t mutate silently, just warn in logs.
-            print("[settings] WARNING: DATABASE_URL is sync; prefer postgresql+asyncpg:// for the app")
-        return v
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(
+        default=60 * 24 * 30,
+        alias="ACCESS_TOKEN_EXPIRE_MINUTES",
+    )
+    login_challenge: str = Field(default="test_nonce_value", alias="LOGIN_CHALLENGE")
 
-    @field_validator("recent_window_size", "controversial_min_total", "token_epoch_size", "min_community_denominator")
-    @classmethod
-    def _positive_int(cls, v: int, info: ValidationInfo) -> int:
-        """Validate that integer configuration values are positive."""
-        if v <= 0:
-            raise ValueError(f"{info.field_name} must be > 0")
-        return v
+    pow_difficulty_post: int = Field(default=20, alias="POW_DIFFICULTY_POST")
+    pow_difficulty_vote: int = Field(default=15, alias="POW_DIFFICULTY_VOTE")
+    pow_difficulty_message: int = Field(default=18, alias="POW_DIFFICULTY_MESSAGE")
+    pow_difficulty_moderate: int = Field(default=16, alias="POW_DIFFICULTY_MODERATE")
 
-    @field_validator("harmful_hide_threshold", "clear_threshold")
-    @classmethod
-    def _ratio_0_1(cls, v: float, info: ValidationInfo) -> float:
-        """Ensure ratio-based fields fall within (0, 1]."""
-        if not (0.0 < v <= 1.0):
-            raise ValueError(f"{info.field_name} must be in (0, 1]")
-        return v
+    recent_window_size: int = Field(default=50, alias="RECENT_WINDOW_SIZE")
+    controversial_min_total: int = Field(
+        default=5,
+        alias="CONTROVERSIAL_MIN_TOTAL",
+    )
+    token_epoch_size: int = Field(default=10_000, alias="TOKEN_EPOCH_SIZE")
+    harmful_hide_threshold: float = Field(default=0.02, alias="HARMFUL_HIDE_THRESHOLD")
+    clear_threshold: float = Field(default=0.6, alias="CLEAR_THRESHOLD")
 
     model_config = SettingsConfigDict(
         env_file=".env",
-        env_prefix="",
-        case_sensitive=False,
+        validate_assignment=True,
         extra="ignore",
     )
 
+    @property
+    def database_url_sync(self) -> str:
+        """Return a sync-compatible database URL for tooling."""
+        if str(self.database_url).startswith("postgresql+asyncpg"):
+            return str(self.database_url).replace("postgresql+asyncpg", "postgresql+psycopg", 1)
+        return self.database_url
 
-settings = Settings()  # type: ignore
+    @property
+    def moderation_thresholds(self) -> dict[str, float]:
+        """Return moderation thresholds as a convenience dictionary."""
+        return {
+            "min_votes": float(self.controversial_min_total),
+            "hide_ratio": self.harmful_hide_threshold,
+        }
 
-# Backwards-compatible aliases for settings used in tests.
-HARMFUL_HIDE_THRESHOLD = settings.harmful_hide_threshold
+
+settings = Settings()

@@ -1,38 +1,45 @@
-"""Database session and engine factory for SQLAlchemy (async)."""
+"""Database session configuration."""
+
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import Generator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from chorus_stage.core.settings import settings
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all ORM models."""
+    """Declarative base shared by all ORM models."""
 
-    pass
 
-# Import models after Base so they can subclass it without circular imports.
-# These imports register tables on Base.metadata via class declaration side-effects.
-from chorus_stage.models import (  # noqa: E402,F401
-    community,
-    message,
-    moderation,
-    post,
-    rate,
-    user,
-    vote,
+# Ensure model modules are imported so that metadata is populated when create_all runs.
+import chorus_stage.models  # noqa: E402,F401
+
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    echo=settings.sql_debug,
 )
 
-engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency that yields an `AsyncSession` and ensures cleanup."""
-    async with SessionLocal() as session:
-        yield session
+def get_db() -> Generator[Session, None, None]:
+    """Yield a database session for dependency injection."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-__all__ = ["Base", "engine", "SessionLocal", "get_session"]
+
+def create_tables() -> None:
+    """Create all database tables."""
+    Base.metadata.create_all(bind=engine)
+
+
+def drop_tables() -> None:
+    """Drop all database tables."""
+    Base.metadata.drop_all(bind=engine)

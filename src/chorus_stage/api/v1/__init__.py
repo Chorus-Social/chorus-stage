@@ -1,5 +1,20 @@
-"""Version 1 API surface for the Chorus application."""
+# src/chorus_stage/api/v1/__init__.py
+"""Version 1 API endpoints."""
 
-from .router import api_v1
+from .endpoints import (
+    auth_router,
+    communities_router,
+    messages_router,
+    moderation_router,
+    posts_router,
+    votes_router,
+)
 
-__all__ = ["api_v1"]
+__all__ = [
+    "auth_router",
+    "posts_router",
+    "votes_router",
+    "communities_router",
+    "messages_router",
+    "moderation_router"
+]

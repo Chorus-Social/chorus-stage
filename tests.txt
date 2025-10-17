@@ -1,0 +1,21 @@
+../../../Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/fastapi/routing.py:233: 48 warnings
+  /Users/hailey/Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/fastapi/routing.py:233: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    is_coroutine = asyncio.iscoroutinefunction(dependant.call)
+
+../../../Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/pytest_asyncio/plugin.py:169: 4382 warnings
+  /Users/hailey/Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/pytest_asyncio/plugin.py:169: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(obj) or inspect.isasyncgenfunction(obj)
+
+../../../Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/pytest_asyncio/plugin.py:433: 73 warnings
+  /Users/hailey/Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/pytest_asyncio/plugin.py:433: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    return asyncio.iscoroutinefunction(func)
+
+tests/v1/test_auth.py::test_register_user_success
+  /Users/hailey/Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/pytest_asyncio/plugin.py:1005: DeprecationWarning: 'asyncio.get_event_loop_policy' is deprecated and slated for removal in Python 3.16
+    return asyncio.get_event_loop_policy()
+
+tests/v1/test_integration.py::test_api_error_handling
+  /Users/hailey/Library/Caches/pypoetry/virtualenvs/chorus-stage-w-9Kb_QM-py3.14/lib/python3.14/site-packages/httpx/_content.py:204: DeprecationWarning: Use 'content=<...>' to upload raw bytes/text content.
+    warnings.warn(message, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html

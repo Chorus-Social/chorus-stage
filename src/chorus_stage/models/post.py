@@ -1,12 +1,21 @@
+# src/chorus_stage/models/post.py
 """SQLAlchemy models for posts and related attributes."""
+
+from datetime import datetime
+
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
+from chorus_stage.db.time import utcnow
 
 
 class Post(Base):
-    """Primary content entity produced by users."""
+    """Primary content entity produced by users.
+
+    Posts are the central content type in Chorus, organized in a global
+    deterministic order without timestamps to protect against timing analysis.
+    """
 
     __tablename__ = "post"
 
@@ -30,5 +39,9 @@ class Post(Base):
     # 0 = visible, 1 = in_queue (excluded from home feed), 2 = hidden (threshold met).
     moderation_state: Mapped[int] = mapped_column(default=0, nullable=False)
     harmful_vote_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    upvotes: Mapped[int] = mapped_column(default=0, nullable=False)
+    downvotes: Mapped[int] = mapped_column(default=0, nullable=False)
 
     deleted: Mapped[bool] = mapped_column(default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

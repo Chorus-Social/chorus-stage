@@ -69,16 +69,15 @@ def ensure_database_exists(db_url: str) -> None:
         print(f"[ensure_db] admin_url={admin_url!r}, target_db={target_db!r}")
 
     # Connect to maintenance DB
-    with psycopg.connect(admin_url, autocommit=True) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (target_db,))
-            exists = cur.fetchone() is not None
-            if not exists:
-                query = sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db))
-                cur.execute(query)
-                print(f"[ensure_db] created database {target_db}")
-            else:
-                print(f"[ensure_db] database {target_db} already exists")
+    with psycopg.connect(admin_url, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (target_db,))
+        exists = cur.fetchone() is not None
+        if not exists:
+            query = sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db))
+            cur.execute(query)
+            print(f"[ensure_db] created database {target_db}")
+        else:
+            print(f"[ensure_db] database {target_db} already exists")
 
 
 if __name__ == "__main__":

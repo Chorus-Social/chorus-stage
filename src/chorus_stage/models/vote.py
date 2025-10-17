@@ -1,14 +1,21 @@
+# src/chorus_stage/models/vote.py
 """Models capturing voting interactions on posts."""
-from __future__ import annotations
+
+from datetime import datetime
 
 from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, SmallInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
+from chorus_stage.db.time import utcnow
 
 
 class PostVote(Base):
-    """Per-user vote on a post."""
+    """Per-user vote on a post.
+
+    Votes are weighted to establish content quality signals while
+    preserving voter anonymity.
+    """
 
     __tablename__ = "post_vote"
     __table_args__ = (
@@ -35,3 +42,4 @@ class PostVote(Base):
 
     # Future-proof for reputation models; default weight = 1.0.
     weight: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False, default=1.0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

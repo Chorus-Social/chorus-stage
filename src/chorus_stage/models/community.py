@@ -1,16 +1,25 @@
+# src/chorus_stage/models/community.py
 """SQLAlchemy models for community membership and metadata."""
-from sqlalchemy import BigInteger, Boolean, Text
+
+from datetime import datetime
+
+from sqlalchemy import BigInteger, Boolean, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
+from chorus_stage.db.time import utcnow
 
 
 class Community(Base):
-    """Community metadata used for grouping posts and members."""
+    """Community metadata used for grouping posts and members.
+
+    Communities serve as containers for themed discussions and can be
+    specialized (e.g., profile-like communities for individual users).
+    """
 
     __tablename__ = "community"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Internal identifier akin to a handle.
     internal_slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -19,7 +28,8 @@ class Community(Base):
     is_profile_like: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Deterministic ordering of community creation if needed.
     order_index: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
-
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 class CommunityMember(Base):
     """Join table mapping users into communities."""
