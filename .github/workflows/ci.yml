@@ -9,11 +9,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     env:
-      # Make imports work for src/ layout
+      # Keep everything self-contained and fast
       PYTHONPATH: src
-      # Use a stateless in-memory DB for tests
-      DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
+      DATABASE_URL: "sqlite+aiosqlite://"
       APP_ENV: test
 
     steps:
@@ -24,8 +24,7 @@ jobs:
         id: py
         uses: actions/setup-python@v5
         with:
-          # 3.12 is broadly supported by all deps; upgrade later if needed
-          python-version: "3.12"
+          python-version: "3.14"
           cache: "pip"
 
       - name: Install Poetry

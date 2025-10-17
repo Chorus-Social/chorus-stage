@@ -59,12 +59,8 @@ downgrade:
 	# Example: make downgrade r=-1  (or r=base)
 	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) downgrade $(r)
 
-reset-db:
-	# Nuclear option for local dev. Requires drop/create privileges.
-	-psql postgres://chorus:is-cool@localhost:5432/postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='chorus' AND pid <> pg_backend_pid();" >/dev/null 2>&1
-	-psql postgres://chorus:is-cool@localhost:5432/postgres -c "DROP DATABASE IF EXISTS chorus;" >/dev/null 2>&1
-	psql postgres://chorus:is-cool@localhost:5432/postgres -c "CREATE DATABASE chorus;"
-	$(MAKE) migrate
+db-check:
+	PYTHONPATH=src poetry run python3 -c "from chorus_stage.db.session import Base; print(sorted(Base.metadata.tables))"
 
 # ----- quality -----
 lint:
