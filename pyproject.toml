@@ -19,8 +19,6 @@ typing-extensions = "^4.12.2"
 PyNaCl = "^1.5.0"
 python-multipart = "^0.0.9"
 psycopg = {extras = ["binary", "pool", "async"], version = "^3.2"}
-cryptography = "^41.0.0"
-python-jose = "^3.3.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
@@ -32,19 +30,10 @@ aiosqlite = "^0.20.0"
 greenlet = "^3.0.3"
 
 [tool.ruff]
-line-length = 120
+line-length = 100
 target-version = "py312"
-
-[tool.ruff.lint]
-extend-select = ["B","E","F","I","PL","SIM","UP"]
-ignore = [
-  "B008",    # FastAPI: Depends(...) in param defaults is idiomatic
-  "E501",    # long lines; we set line-length anyway
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ANN", "D", "PLR2004", "E501", "B011"]
-"src/chorus_stage/schemas/**" = ["D102", "D103"]
+extend-select = ["I", "F", "E", "W", "UP", "B", "SIM", "PL"]
+ignore = ["E203"]  # keep black-compatible slicing if you ever switch
 
 [tool.ruff.lint.isort]
 known-first-party = ["chorus_stage"]
@@ -57,16 +46,8 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unused_configs = true
 ignore_missing_imports = true
-disallow_untyped_defs = false
 strict_optional = true
 exclude = ["migrations/"]
-
-[tool.pytest.ini_options]
-filterwarnings = [
-  "ignore::DeprecationWarning:fastapi.routing",
-  "ignore::DeprecationWarning:pytest_asyncio.plugin",
-  "ignore::DeprecationWarning:httpx._content",
-]
 
 [build-system]
 requires = ["poetry-core"]
