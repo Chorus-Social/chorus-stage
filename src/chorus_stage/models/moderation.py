@@ -1,13 +1,10 @@
 # src/chorus_stage/models/moderation.py
 """Models tracking moderation cases and associated actions."""
 
-from datetime import datetime
-
-from sqlalchemy import BigInteger, ForeignKey, Numeric, SmallInteger
+from sqlalchemy import BigInteger, ForeignKey, LargeBinary, Numeric, SmallInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
-from chorus_stage.db.time import utcnow
 
 MODERATION_STATE_OPEN = 0
 MODERATION_STATE_CLEARED = 1
@@ -35,8 +32,6 @@ class ModerationCase(Base):
     # Snapshot numbers for audit without relying on timestamps.
     opened_order_index: Mapped[int] = mapped_column(Numeric(38, 0), nullable=False)
     closed_order_index: Mapped[int | None] = mapped_column(Numeric(38, 0), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    closed_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 class ModerationVote(Base):
     """Votes cast by community members when moderating a piece of content."""
@@ -48,15 +43,14 @@ class ModerationVote(Base):
         ForeignKey("moderation_case.post_id", ondelete="CASCADE"),
         primary_key=True,
     )
-    voter_user_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("user_account.id"),
+    voter_user_id: Mapped[bytes] = mapped_column(
+        LargeBinary(32),
+        ForeignKey("anon_key.user_id"),
         primary_key=True,
     )
     # 1 = harmful, 0 = not harmful.
     choice: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     weight: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False, default=1.0)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 class ModerationTrigger(Base):
     """Audit record showing that a user spent a token to flag a post."""
@@ -68,10 +62,9 @@ class ModerationTrigger(Base):
         ForeignKey("post.id", ondelete="CASCADE"),
         primary_key=True
     )
-    trigger_user_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("user_account.id"),
+    trigger_user_id: Mapped[bytes] = mapped_column(
+        LargeBinary(32),
+        ForeignKey("anon_key.user_id"),
         primary_key=True,
     )
     day_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)

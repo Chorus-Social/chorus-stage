@@ -1,13 +1,10 @@
 # src/chorus_stage/models/community.py
 """SQLAlchemy models for community membership and metadata."""
 
-from datetime import datetime
-
-from sqlalchemy import BigInteger, Boolean, Integer, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, LargeBinary, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
-from chorus_stage.db.time import utcnow
 
 
 class Community(Base):
@@ -28,14 +25,15 @@ class Community(Base):
     is_profile_like: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Deterministic ordering of community creation if needed.
     order_index: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
-
 class CommunityMember(Base):
     """Join table mapping users into communities."""
 
     __tablename__ = "community_member"
 
     community_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[bytes] = mapped_column(
+        LargeBinary(32),
+        ForeignKey("anon_key.user_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
     # No timestamps; presence implies membership.

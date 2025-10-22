@@ -20,7 +20,7 @@ def test_send_message(client, test_user, other_user, auth_token) -> None:
         "/api/v1/messages/",
         json={
             "ciphertext": ciphertext,
-            "recipient_pubkey_hex": other_user.ed25519_pubkey.hex(),
+            "recipient_pubkey_hex": other_user.pubkey.hex(),
             "header_blob": None,
             "pow_nonce": "test_nonce"
         },
@@ -74,7 +74,7 @@ def test_send_message_invalid_ciphertext(client, test_user, other_user, auth_tok
         "/api/v1/messages/",
         json={
             "ciphertext": "not_base64",
-            "recipient_pubkey_hex": other_user.ed25519_pubkey.hex(),
+            "recipient_pubkey_hex": other_user.pubkey.hex(),
             "header_blob": None,
             "pow_nonce": "test_nonce"
         },
@@ -93,7 +93,7 @@ def test_send_message_with_header(client, test_user, other_user, auth_token) -> 
         "/api/v1/messages/",
         json={
             "ciphertext": ciphertext,
-            "recipient_pubkey_hex": other_user.ed25519_pubkey.hex(),
+            "recipient_pubkey_hex": other_user.pubkey.hex(),
             "header_blob": header_blob,
             "pow_nonce": "test_nonce"
         },
@@ -156,7 +156,7 @@ def test_message_reply_flow(client, test_user, other_user, auth_token, other_aut
         "/api/v1/messages/",
         json={
             "ciphertext": ciphertext,
-            "recipient_pubkey_hex": other_user.ed25519_pubkey.hex(),
+            "recipient_pubkey_hex": other_user.pubkey.hex(),
             "header_blob": None,
             "pow_nonce": "test_nonce_1"
         },
@@ -179,7 +179,7 @@ def test_message_reply_flow(client, test_user, other_user, auth_token, other_aut
         "/api/v1/messages/",
         json={
             "ciphertext": reply_ciphertext,
-            "recipient_pubkey_hex": test_user.ed25519_pubkey.hex(),
+            "recipient_pubkey_hex": test_user.pubkey.hex(),
             "header_blob": None,
             "pow_nonce": "test_nonce_2"
         },
@@ -224,7 +224,7 @@ def test_message_flow_with_pagination(client, test_user, other_user, auth_token)
             "/api/v1/messages/",
             json={
                 "ciphertext": ciphertext,
-                "recipient_pubkey_hex": other_user.ed25519_pubkey.hex(),
+                "recipient_pubkey_hex": other_user.pubkey.hex(),
                 "header_blob": None,
                 "pow_nonce": f"test_nonce_{i}"
             },

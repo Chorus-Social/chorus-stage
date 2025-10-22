@@ -31,13 +31,17 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 PowServiceDep = Annotated[PowService, Depends(get_pow_service_dep)]
 
 
+def _encode_user_id(user_id: bytes) -> str:
+    return base64.urlsafe_b64encode(user_id).decode().rstrip("=")
+
+
 def _serialize_message(message: DirectMessage) -> dict[str, Any]:
     """Serialize a DirectMessage instance into API payload form."""
     return {
         "id": message.id,
         "order_index": int(message.order_index),
-        "sender_user_id": message.sender_user_id,
-        "recipient_user_id": message.recipient_user_id,
+        "sender_user_id": _encode_user_id(message.sender_user_id),
+        "recipient_user_id": _encode_user_id(message.recipient_user_id),
         "ciphertext": base64.b64encode(message.ciphertext).decode(),
         "header_blob": (
             base64.b64encode(message.header_blob).decode()
@@ -66,7 +70,7 @@ async def send_message(
 
     recipient = (
         db.query(User)
-        .filter(User.ed25519_pubkey == recipient_pubkey, User.deleted.is_(False))
+        .filter(User.pubkey == recipient_pubkey)
         .first()
     )
 
@@ -76,7 +80,7 @@ async def send_message(
             detail="Recipient not found",
         )
 
-    sender_pubkey_hex = current_user.ed25519_pubkey.hex()
+    sender_pubkey_hex = current_user.pubkey.hex()
 
     if not pow_service.verify_pow("message", sender_pubkey_hex, message_data.pow_nonce):
         raise HTTPException(
@@ -114,8 +118,8 @@ async def send_message(
 
     new_message = DirectMessage(
         order_index=clock.day_seq,
-        sender_user_id=current_user.id,
-        recipient_user_id=recipient.id,
+        sender_user_id=current_user.user_id,
+        recipient_user_id=recipient.user_id,
         ciphertext=ciphertext,
         header_blob=header_blob,
         delivered=False,
@@ -138,7 +142,7 @@ async def get_inbox(
 ) -> list[dict[str, Any]]:
     """Get encrypted messages for current user (as recipient)."""
     query = db.query(DirectMessage).filter(
-        DirectMessage.recipient_user_id == current_user.id
+        DirectMessage.recipient_user_id == current_user.user_id
     )
 
     if before is not None:
@@ -157,7 +161,7 @@ async def get_sent_messages(
 ) -> list[dict[str, Any]]:
     """Get encrypted messages sent by current user."""
     query = db.query(DirectMessage).filter(
-        DirectMessage.sender_user_id == current_user.id
+        DirectMessage.sender_user_id == current_user.user_id
     )
 
     if before is not None:
@@ -178,7 +182,7 @@ async def mark_message_read(
         db.query(DirectMessage)
         .filter(
             DirectMessage.id == message_id,
-            DirectMessage.recipient_user_id == current_user.id,
+            DirectMessage.recipient_user_id == current_user.user_id,
         )
         .first()
     )

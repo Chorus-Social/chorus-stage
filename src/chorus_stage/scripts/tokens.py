@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from chorus_stage.core.settings import settings
 from chorus_stage.db.session import SessionLocal
-from chorus_stage.models import SystemClock, User
+from chorus_stage.models import SystemClock, User, UserState
 
 MODERATION_TOKENS_PER_DAY = 3
 HOURS_PER_DAY = 24
@@ -31,8 +31,20 @@ def refresh_moderation_tokens(db: Session) -> None:
     Args:
         db: Database session
     """
+    # Ensure every user has a state row
+    missing_states = (
+        db.query(User.user_id)
+        .outerjoin(UserState, User.user_id == UserState.user_id)
+        .filter(UserState.user_id.is_(None))
+        .all()
+    )
+    for (user_id,) in missing_states:
+        db.add(UserState(user_id=user_id))
+    if missing_states:
+        db.commit()
+
     # Reset moderation tokens for all users (they get 3 per day)
-    db.query(User).update({"mod_tokens_remaining": MODERATION_TOKENS_PER_DAY})
+    db.query(UserState).update({"mod_tokens_remaining": MODERATION_TOKENS_PER_DAY})
     db.commit()
     print("Refreshed moderation tokens for all users")
 

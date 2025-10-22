@@ -1,6 +1,8 @@
 # src/chorus_stage/schemas/post.py
 """Post-related Pydantic schemas."""
 
+import base64
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -24,7 +26,7 @@ class PostResponse(BaseModel):
 
     id: int
     order_index: int
-    author_user_id: int | None
+    author_user_id: str | None
     author_pubkey: str
     parent_post_id: int | None
     community_id: int | None
@@ -44,6 +46,10 @@ class PostResponse(BaseModel):
             for field_name in cls.model_fields:
                 extracted[field_name] = getattr(data, field_name, None)
             data = extracted
+
+        user_id = data.get("author_user_id")
+        if isinstance(user_id, bytes | bytearray):
+            data["author_user_id"] = base64.urlsafe_b64encode(bytes(user_id)).decode().rstrip("=")
 
         author = data.get("author_pubkey")
         if isinstance(author, bytes | bytearray):

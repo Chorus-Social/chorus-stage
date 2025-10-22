@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from chorus_stage.db.session import get_db
@@ -99,7 +99,7 @@ async def join_community(
     # Check if already a member
     existing_membership = db.query(CommunityMember).filter(
         CommunityMember.community_id == community_id,
-        CommunityMember.user_id == current_user.id
+        CommunityMember.user_id == current_user.user_id
     ).first()
 
     if existing_membership:
@@ -111,24 +111,28 @@ async def join_community(
     # Create membership
     membership = CommunityMember(
         community_id=community_id,
-        user_id=current_user.id
+        user_id=current_user.user_id
     )
     db.add(membership)
     db.commit()
 
     return {"status": "joined"}
 
-@router.delete("/{community_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{community_id}/leave",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def leave_community(
     community_id: int,
     current_user: CurrentUserDep,
     db: SessionDep,
-) -> None:
+) -> Response:
     """Leave a community."""
     # Check if a member
     membership = db.query(CommunityMember).filter(
         CommunityMember.community_id == community_id,
-        CommunityMember.user_id == current_user.id
+        CommunityMember.user_id == current_user.user_id
     ).first()
 
     if not membership:
@@ -140,6 +144,8 @@ async def leave_community(
     # Remove membership
     db.delete(membership)
     db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.get("/{community_id}/posts", response_model=list[PostResponse])
 async def get_community_posts(

@@ -1,13 +1,18 @@
 # src/chorus_stage/models/vote.py
 """Models capturing voting interactions on posts."""
 
-from datetime import datetime
-
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, SmallInteger
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    Numeric,
+    SmallInteger,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
-from chorus_stage.db.time import utcnow
 
 
 class PostVote(Base):
@@ -29,9 +34,9 @@ class PostVote(Base):
         primary_key=True,
     )
 
-    voter_user_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("user_account.id"),
+    voter_user_id: Mapped[bytes] = mapped_column(
+        LargeBinary(32),
+        ForeignKey("anon_key.user_id"),
         primary_key=True,
     )
 
@@ -42,4 +47,3 @@ class PostVote(Base):
 
     # Future-proof for reputation models; default weight = 1.0.
     weight: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False, default=1.0)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)

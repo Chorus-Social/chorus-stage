@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from chorus_stage.db.session import get_db
 from chorus_stage.models import Post, PostVote, User
 from chorus_stage.schemas.vote import VoteCreate
-from chorus_stage.services.crypto import CryptoService
 from chorus_stage.services.pow import PowService, get_pow_service
 from chorus_stage.services.replay import ReplayProtectionService, get_replay_service
 
@@ -18,8 +17,6 @@ from .posts import get_current_user
 
 router = APIRouter(prefix="/votes", tags=["votes"])
 bearer_scheme = HTTPBearer()
-crypto_service = CryptoService()
-
 
 def get_pow_service_dep() -> PowService:
     """Return the shared proof-of-work service."""
@@ -51,7 +48,7 @@ def _validate_pow_and_replay(
     current_user: User,
     vote_data: VoteCreate,
 ) -> None:
-    pubkey_hex = current_user.ed25519_pubkey.hex()
+    pubkey_hex = current_user.pubkey.hex()
     if not pow_service.verify_pow("vote", pubkey_hex, vote_data.pow_nonce):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -100,7 +97,7 @@ def _create_vote(
     db: Session,
     post: Post,
     vote_data: VoteCreate,
-    voter_id: int,
+    voter_id: bytes,
 ) -> None:
     db.add(
         PostVote(
@@ -142,13 +139,13 @@ async def cast_vote(
 
     existing_vote = db.query(PostVote).filter(
         PostVote.post_id == vote_data.post_id,
-        PostVote.voter_user_id == current_user.id,
+        PostVote.voter_user_id == current_user.user_id,
     ).first()
 
     if existing_vote:
         _handle_existing_vote(existing_vote=existing_vote, vote_data=vote_data, post=post, db=db)
     else:
-        _create_vote(db=db, post=post, vote_data=vote_data, voter_id=current_user.id)
+        _create_vote(db=db, post=post, vote_data=vote_data, voter_id=current_user.user_id)
 
     if vote_data.direction == -1:
         _refresh_harmful_votes(db, post, vote_data.post_id)
@@ -166,7 +163,7 @@ async def get_my_vote(
     """Get current user's vote on a specific post."""
     vote = db.query(PostVote).filter(
         PostVote.post_id == post_id,
-        PostVote.voter_user_id == current_user.id,
+        PostVote.voter_user_id == current_user.user_id,
     ).first()
 
     if not vote:

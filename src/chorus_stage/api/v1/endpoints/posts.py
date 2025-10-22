@@ -1,6 +1,7 @@
 # src/chorus_stage/api/v1/endpoints/posts.py
 """Post-related endpoints for the Chorus API."""
 
+import base64
 import hashlib
 from typing import Annotated
 
@@ -28,6 +29,17 @@ def get_pow_service_dep() -> PowService:
 
 SessionDep = Annotated[Session, Depends(get_db)]
 PowServiceDep = Annotated[PowService, Depends(get_pow_service_dep)]
+
+
+def _decode_user_id(subject: str) -> bytes:
+    padding = "=" * (-len(subject) % 4)
+    try:
+        return base64.urlsafe_b64decode(subject + padding)
+    except Exception as err:  # pragma: no cover - defensive
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        ) from err
 
 def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
@@ -57,19 +69,13 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Could not validate credentials",
             )
-        try:
-            user_id = int(subject)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-            ) from exc
+        user_id = _decode_user_id(subject)
 
-        user = db.query(User).filter(User.id == user_id).first()
-        if user is None or user.deleted:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found or deleted",
+                detail="User not found",
             )
         return user
     except JWTError as err:
@@ -177,15 +183,31 @@ async def create_post(
     pow_service: PowServiceDep,
 ) -> Post:
     """Create a new post with proof of work verification."""
-    # Verify PoW for posting
+    author_pubkey_hex = current_user.pubkey.hex()
+    expected_difficulty = pow_service.difficulties.get(
+        "post",
+        settings.pow_difficulty_post,
+    )
+    if post_data.pow_difficulty < expected_difficulty:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Insufficient proof-of-work difficulty (expected ≥ {expected_difficulty})",
+        )
+
+    if pow_service.is_pow_replay("post", author_pubkey_hex, post_data.pow_nonce):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Proof of work nonce has already been used",
+        )
+
     if not pow_service.verify_pow(
         "post",
-        current_user.ed25519_pubkey.hex(),
-        post_data.pow_nonce
+        author_pubkey_hex,
+        post_data.pow_nonce,
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid proof of work for post creation"
+            detail="Invalid proof of work for post creation",
         )
 
     # Verify content hash
@@ -201,20 +223,32 @@ async def create_post(
     if computed_hash != expected_hash:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Content hash does not match content"
+            detail="Content hash does not match content",
         )
+
+    if post_data.parent_post_id is not None:
+        parent = db.query(Post).filter(
+            Post.id == post_data.parent_post_id,
+            Post.deleted.is_(False),
+        ).first()
+        if parent is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Parent post not found",
+            )
 
     # Find community if specified
     community_id: int | None = None
     if post_data.community_internal_slug:
         from chorus_stage.models import Community
+
         community = db.query(Community).filter(
             Community.internal_slug == post_data.community_internal_slug
         ).first()
         if not community:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Community not found"
+                detail="Community not found",
             )
         community_id = community.id
 
@@ -223,9 +257,9 @@ async def create_post(
 
     # Create the post
     new_post = Post(
-        order_index=clock.day_seq,  # Use day_seq for global ordering
-        author_user_id=current_user.id,
-        author_pubkey=current_user.ed25519_pubkey,
+        order_index=clock.day_seq,
+        author_user_id=current_user.user_id,
+        author_pubkey=current_user.pubkey,
         parent_post_id=post_data.parent_post_id,
         community_id=community_id,
         body_md=post_data.content_md,
@@ -234,11 +268,12 @@ async def create_post(
         harmful_vote_count=0,
     )
 
-    # Increment the clock
     clock.day_seq += 1
     db.add(new_post)
     db.commit()
     db.refresh(new_post)
+
+    pow_service.register_pow("post", author_pubkey_hex, post_data.pow_nonce)
 
     return new_post
 
@@ -258,7 +293,7 @@ async def delete_post(
         )
 
     # Only the author can delete their own posts
-    if post.author_user_id != current_user.id:
+    if post.author_user_id != current_user.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only delete your own posts"

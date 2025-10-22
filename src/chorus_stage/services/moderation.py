@@ -1,13 +1,19 @@
 # src/chorus_stage/services/moderation.py
 """Moderation services for Chorus."""
 
-from datetime import UTC, datetime
+import math
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from chorus_stage.core.settings import settings
-from chorus_stage.models import ModerationCase, ModerationVote, Post
+from chorus_stage.models import (
+    CommunityMember,
+    ModerationCase,
+    ModerationVote,
+    Post,
+    UserState,
+)
 from chorus_stage.models.moderation import (
     MODERATION_STATE_CLEARED,
     MODERATION_STATE_HIDDEN,
@@ -46,24 +52,35 @@ class ModerationService:
             ModerationVote.choice == 0  # Not harmful
         ).scalar() or 0
 
-        total_votes = harmful_votes + not_harmful_votes
-
         # Update harmful vote count on post
         post = db.query(Post).filter(Post.id == post_id).first()
         if post:
             post.harmful_vote_count = harmful_votes
 
         # Determine moderation state
-        thresholds = settings.moderation_thresholds
-        min_votes = int(thresholds["min_votes"])
-        hide_ratio = thresholds["hide_ratio"]
+        min_size = max(settings.moderation_min_community_size, 1)
+        community_size = min_size
+        if post and post.community_id:
+            community_size = db.query(func.count()).filter(
+                CommunityMember.community_id == post.community_id
+            ).scalar() or 0
+            community_size = max(community_size, min_size)
 
-        if total_votes < min_votes:  # Not enough votes yet
-            new_state = MODERATION_STATE_OPEN
-        elif harmful_votes > not_harmful_votes * hide_ratio:
+        harmful_threshold = max(
+            1,
+            math.ceil(community_size * settings.harmful_hide_threshold),
+        )
+        clear_threshold = max(
+            1,
+            math.ceil(community_size * settings.clear_threshold),
+        )
+
+        if harmful_votes >= harmful_threshold:
             new_state = MODERATION_STATE_HIDDEN
-        else:
+        elif not_harmful_votes >= clear_threshold:
             new_state = MODERATION_STATE_CLEARED
+        else:
+            new_state = MODERATION_STATE_OPEN
 
         # Update if state changed
         if case.state != new_state:
@@ -74,12 +91,11 @@ class ModerationService:
                 post.moderation_state = new_state
                 if new_state == MODERATION_STATE_HIDDEN:
                     case.closed_order_index = post.order_index
-                    case.closed_at = datetime.now(UTC)
 
         db.commit()
 
     @staticmethod
-    def can_trigger_moderation(user_id: int, post_id: int, db: Session) -> bool:
+    def can_trigger_moderation(user_id: bytes, post_id: int, db: Session) -> bool:
         """Check if a user can trigger moderation on a post today.
 
         Args:
@@ -109,7 +125,7 @@ class ModerationService:
         return existing_trigger is None
 
     @staticmethod
-    def consume_moderation_token(user_id: int, db: Session) -> bool:
+    def consume_moderation_token(user_id: bytes, db: Session) -> bool:
         """Consume a moderation token if available.
 
         Args:
@@ -119,15 +135,18 @@ class ModerationService:
         Returns:
             True if a token was consumed, False if none were available
         """
-        from chorus_stage.models import User
+        state = db.query(UserState).filter(UserState.user_id == user_id).first()
+        if not state:
+            state = UserState(user_id=user_id)
+            db.add(state)
+            db.commit()
+            state = db.query(UserState).filter(UserState.user_id == user_id).first()
+            if not state:  # pragma: no cover - defensive
+                return False
 
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
+        if state.mod_tokens_remaining <= 0:
             return False
 
-        if user.mod_tokens_remaining <= 0:
-            return False
-
-        user.mod_tokens_remaining -= 1
+        state.mod_tokens_remaining -= 1
         db.commit()
         return True

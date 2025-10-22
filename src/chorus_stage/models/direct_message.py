@@ -1,13 +1,10 @@
 # src/chorus_stage/models/direct_message.py
 """Models describing direct messages between users."""
 
-from datetime import datetime
-
-from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, Numeric
+from sqlalchemy import ForeignKey, Integer, LargeBinary, Numeric
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
-from chorus_stage.db.time import utcnow
 
 
 class DirectMessage(Base):
@@ -22,14 +19,14 @@ class DirectMessage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     order_index: Mapped[int] = mapped_column(Numeric(38, 0), nullable=False, unique=True)
 
-    sender_user_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("user_account.id"),
+    sender_user_id: Mapped[bytes] = mapped_column(
+        LargeBinary(32),
+        ForeignKey("anon_key.user_id"),
         nullable=False,
     )
-    recipient_user_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("user_account.id"),
+    recipient_user_id: Mapped[bytes] = mapped_column(
+        LargeBinary(32),
+        ForeignKey("anon_key.user_id"),
         nullable=False,
     )
 
@@ -41,4 +38,3 @@ class DirectMessage(Base):
     header_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
     delivered: Mapped[bool] = mapped_column(default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)

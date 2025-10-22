@@ -2,13 +2,17 @@
 # src/chorus_stage/tests/v1/test_posts.py
 """Tests for post-related endpoints."""
 
+import base64
 import hashlib
-from unittest.mock import patch
 
 import pytest
 from fastapi import status
 
 pytestmark = pytest.mark.usefixtures("mock_pow_service")
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
 def test_create_post_success(client, test_user, auth_token) -> None:
@@ -29,30 +33,27 @@ def test_create_post_success(client, test_user, auth_token) -> None:
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["body_md"] == content
-    assert data["author_user_id"] == test_user.id
+    assert data["author_user_id"] == _b64(test_user.user_id)
     assert data["content_hash"] == content_hash
 
 
 def test_create_post_invalid_pow(client, test_user, auth_token) -> None:
-    """Test post creation with invalid proof of work."""
-    with patch("chorus_stage.services.pow.PowService") as mock_pow:
-        mock_pow.return_value.verify_pow.return_value = False
+    """Test post creation fails when difficulty is insufficient."""
+    content = "Test post content"
+    content_hash = hashlib.sha256(content.encode()).hexdigest()
 
-        content = "Test post content"
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
-
-        response = client.post(
-            "/api/v1/posts/",
-            json={
-                "content_md": content,
-                "pow_nonce": "test_nonce",
-                "pow_difficulty": 20,
-                "content_hash": content_hash
-            },
-            headers=auth_token
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid proof of work" in response.json()["detail"]
+    response = client.post(
+        "/api/v1/posts/",
+        json={
+            "content_md": content,
+            "pow_nonce": "test_nonce",
+            "pow_difficulty": 19,
+            "content_hash": content_hash
+        },
+        headers=auth_token
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Insufficient proof-of-work" in response.json()["detail"]
 
 
 def test_create_post_invalid_hash(client, test_user, auth_token) -> None:
@@ -153,8 +154,8 @@ def test_get_post_children(client, db_session, test_user, test_post, setup_syste
 
     reply = Post(
         order_index=2,
-        author_user_id=test_user.id,
-        author_pubkey=test_user.ed25519_pubkey,
+        author_user_id=test_user.user_id,
+        author_pubkey=test_user.pubkey,
         parent_post_id=test_post.id,
         body_md=content,
         content_hash=content_hash,
@@ -175,7 +176,7 @@ def test_get_post_children(client, db_session, test_user, test_post, setup_syste
 def test_delete_own_post(client, test_user, auth_token, test_post, db_session) -> None:
     """Test deleting a post by the author."""
     # Ensure the test post belongs to the test user
-    test_post.author_user_id = test_user.id
+    test_post.author_user_id = test_user.user_id
     db_session.commit()
 
     response = client.delete(f"/api/v1/posts/{test_post.id}", headers=auth_token)
@@ -185,7 +186,7 @@ def test_delete_own_post(client, test_user, auth_token, test_post, db_session) -
 def test_delete_other_post(client, test_user, other_auth_token, test_post, db_session) -> None:
     """Test deleting a post by someone other than the author."""
     # Ensure the test post belongs to the test user, not the other user
-    test_post.author_user_id = test_user.id
+    test_post.author_user_id = test_user.user_id
     db_session.commit()
 
     response = client.delete(f"/api/v1/posts/{test_post.id}", headers=other_auth_token)

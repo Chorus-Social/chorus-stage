@@ -11,7 +11,7 @@ from chorus_stage.models.moderation import MODERATION_STATE_OPEN
 def test_trigger_moderation(client, test_user, auth_token, test_post, db_session) -> None:
     """Test triggering moderation for a post."""
     # Ensure user has moderation tokens
-    test_user.mod_tokens_remaining = 3
+    test_user.state.mod_tokens_remaining = 3
     db_session.commit()
 
     response = client.post(
@@ -28,7 +28,7 @@ def test_trigger_moderation(client, test_user, auth_token, test_post, db_session
 def test_trigger_moderation_no_tokens(client, test_user, auth_token, test_post, db_session) -> None:
     """Test triggering moderation with no tokens."""
     # Set tokens to 0
-    test_user.mod_tokens_remaining = 0
+    test_user.state.mod_tokens_remaining = 0
     db_session.commit()
 
     response = client.post(
@@ -49,7 +49,7 @@ def test_trigger_moderation_same_post_twice(
 ) -> None:
     """Test triggering moderation twice for the same post on the same day."""
     # Ensure user has tokens
-    test_user.mod_tokens_remaining = 3
+    test_user.state.mod_tokens_remaining = 3
     db_session.commit()
 
     # First trigger
@@ -157,7 +157,7 @@ def test_moderation_flow_with_multiple_votes(
     other_auth_token = request.getfixturevalue("other_auth_token")
     db_session = request.getfixturevalue("db_session")
 
-    test_user.mod_tokens_remaining = 3
+    test_user.state.mod_tokens_remaining = 3
     db_session.commit()
 
     response = client.post(

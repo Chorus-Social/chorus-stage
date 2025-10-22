@@ -71,13 +71,13 @@ async def trigger_moderation(
             detail="Post not found",
         )
 
-    if not moderation_service.can_trigger_moderation(current_user.id, post_id, db):
+    if not moderation_service.can_trigger_moderation(current_user.user_id, post_id, db):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="You have already triggered moderation for this post today",
         )
 
-    if not moderation_service.consume_moderation_token(current_user.id, db):
+    if not moderation_service.consume_moderation_token(current_user.user_id, db):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="No moderation tokens remaining",
@@ -104,7 +104,7 @@ async def trigger_moderation(
 
     trigger = ModerationTrigger(
         post_id=post_id,
-        trigger_user_id=current_user.id,
+        trigger_user_id=current_user.user_id,
         day_seq=trigger_day_seq,
     )
     db.add(trigger)
@@ -151,7 +151,7 @@ async def vote_on_moderation(
         db.query(ModerationVote)
         .filter(
             ModerationVote.post_id == post_id,
-            ModerationVote.voter_user_id == current_user.id,
+            ModerationVote.voter_user_id == current_user.user_id,
         )
         .first()
     )
@@ -163,7 +163,7 @@ async def vote_on_moderation(
         db.add(
             ModerationVote(
                 post_id=post_id,
-                voter_user_id=current_user.id,
+                voter_user_id=current_user.user_id,
                 choice=choice,
                 weight=1.0,
             )
@@ -186,7 +186,7 @@ async def get_moderation_history(
     query = (
         db.query(ModerationCase)
         .join(Post)
-        .filter(Post.author_user_id == current_user.id, Post.deleted.is_(False))
+        .filter(Post.author_user_id == current_user.user_id, Post.deleted.is_(False))
     )
 
     if before is not None:

@@ -9,7 +9,7 @@ from .community import CommunityCreate, CommunityResponse
 from .direct_message import DirectMessageCreate, DirectMessageResponse
 from .moderation import ModerationAction, ModerationCaseResponse
 from .post import PostCreate, PostResponse
-from .user import UserIdentity, UserResponse
+from .user import RegisterRequest, RegisterResponse
 from .vote import VoteCreate
 
 __all__ = [
@@ -17,6 +17,6 @@ __all__ = [
     "DirectMessageCreate", "DirectMessageResponse",
     "ModerationAction", "ModerationCaseResponse",
     "PostCreate", "PostResponse",
-    "UserIdentity", "UserResponse",
+    "RegisterRequest", "RegisterResponse",
     "VoteCreate"
 ]

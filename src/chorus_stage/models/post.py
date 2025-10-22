@@ -1,13 +1,10 @@
 # src/chorus_stage/models/post.py
 """SQLAlchemy models for posts and related attributes."""
 
-from datetime import datetime
-
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from chorus_stage.db.session import Base
-from chorus_stage.db.time import utcnow
 
 
 class Post(Base):
@@ -22,9 +19,9 @@ class Post(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Global monotonic index for sorting without relying on timestamps.
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
-    author_user_id: Mapped[int | None] = mapped_column(
-        BigInteger,
-        ForeignKey("user_account.id"),
+    author_user_id: Mapped[bytes | None] = mapped_column(
+        LargeBinary(32),
+        ForeignKey("anon_key.user_id"),
         nullable=True,
     )
     author_pubkey: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -55,5 +52,3 @@ class Post(Base):
     downvotes: Mapped[int] = mapped_column(default=0, nullable=False)
 
     deleted: Mapped[bool] = mapped_column(default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
