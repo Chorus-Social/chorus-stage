@@ -4,6 +4,7 @@
 
 import base64
 import hashlib
+from typing import Any
 
 import pytest
 from fastapi import status
@@ -12,11 +13,51 @@ from chorus_stage.models.moderation import (
     MODERATION_STATE_CLEARED,
     MODERATION_STATE_OPEN,
 )
+from tests.conftest import build_register_payload
 
 VISIBLE_OR_QUEUE_STATES = {MODERATION_STATE_OPEN, MODERATION_STATE_CLEARED}
 MIN_TWO_POSTS = 2
 
 pytestmark = pytest.mark.usefixtures("mock_pow_service", "mock_replay_service")
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def _decode_b64(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def _issue_challenge(client, pubkey_b64: str, intent: str) -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/challenge",
+        json={"pubkey": pubkey_b64, "intent": intent},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    return response.json()
+
+
+def _build_login_payload(
+    identity: dict[str, Any],
+    challenge: dict[str, str],
+    nonce: str,
+) -> dict[str, Any]:
+    challenge_bytes = _decode_b64(challenge["signature_challenge"])
+    signature = identity["private_key"].sign(challenge_bytes).signature  # type: ignore[attr-defined]
+    return {
+        "pubkey": identity["pubkey_b64"],
+        "pow": {
+            "nonce": nonce,
+            "difficulty": challenge["pow_difficulty"],
+            "target": challenge["pow_target"],
+        },
+        "proof": {
+            "challenge": challenge["signature_challenge"],
+            "signature": _b64(signature),
+        },
+    }
 
 
 def test_full_post_flow(client, test_user, auth_token, db_session) -> None:
@@ -70,7 +111,7 @@ def test_full_post_flow(client, test_user, auth_token, db_session) -> None:
     assert response.status_code == status.HTTP_201_CREATED
 
     # Trigger moderation
-    test_user.mod_tokens_remaining = 3
+    test_user.state.mod_tokens_remaining = 3
     db_session.commit()
 
     response = client.post(
@@ -155,7 +196,7 @@ def test_messaging_flow(client, test_user, other_user, auth_token, other_auth_to
         "/api/v1/messages/",
         json={
             "ciphertext": ciphertext,
-            "recipient_pubkey_hex": other_user.ed25519_pubkey.hex(),
+            "recipient_pubkey_hex": other_user.pubkey.hex(),
             "pow_nonce": "test_message_nonce"
         },
         headers=auth_token
@@ -271,19 +312,31 @@ def test_complete_anonymous_flow(client, test_user_data, other_user_data) -> Non
     # Register test user
     response = client.post(
         "/api/v1/auth/register",
-        json=test_user_data["user_identity"]
+        json=build_register_payload(test_user_data)
     )
     assert response.status_code == status.HTTP_201_CREATED
-    test_token = response.json()["access_token"]
+    test_login_challenge = _issue_challenge(client, test_user_data["pubkey_b64"], "login")
+    login_payload = _build_login_payload(test_user_data, test_login_challenge, "anon-login-1")
+    login_resp = client.post("/api/v1/auth/login", json=login_payload)
+    assert login_resp.status_code == status.HTTP_200_OK
+    test_token = login_resp.json()["access_token"]
     test_auth_header = {"Authorization": f"Bearer {test_token}"}
 
     # Register other user
     response = client.post(
         "/api/v1/auth/register",
-        json=other_user_data["user_identity"]
+        json=build_register_payload(other_user_data)
     )
     assert response.status_code == status.HTTP_201_CREATED
-    other_token = response.json()["access_token"]
+    other_login_challenge = _issue_challenge(client, other_user_data["pubkey_b64"], "login")
+    other_login_payload = _build_login_payload(
+        other_user_data,
+        other_login_challenge,
+        "anon-login-2",
+    )
+    other_login = client.post("/api/v1/auth/login", json=other_login_payload)
+    assert other_login.status_code == status.HTTP_200_OK
+    other_token = other_login.json()["access_token"]
     other_auth_header = {"Authorization": f"Bearer {other_token}"}
 
     # Test user creates a community

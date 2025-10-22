@@ -23,6 +23,8 @@ class PowService:
             "post": settings.pow_difficulty_post,
             "message": settings.pow_difficulty_message,
             "moderate": settings.pow_difficulty_moderate,
+            "register": settings.pow_difficulty_register,
+            "login": settings.pow_difficulty_login,
         }
         self._replay_service = replay_service or get_replay_service()
         self._testing_mode = _TEST_MODE
@@ -33,15 +35,21 @@ class PowService:
         data = f"{action}:{pubkey_hex}:{bucket}".encode()
         return hashlib.sha256(data).hexdigest()
 
-    def verify_pow(self, action: str, pubkey_hex: str, nonce: str) -> bool:
+    def verify_pow(
+        self,
+        action: str,
+        pubkey_hex: str,
+        nonce: str,
+        target: str | None = None,
+    ) -> bool:
         """Return True if the nonce satisfies the difficulty requirements."""
         if self._testing_mode:
             return True
 
-        challenge = self.get_challenge(action, pubkey_hex)
+        challenge = target or self.get_challenge(action, pubkey_hex)
         difficulty = self._difficulties.get(action, _DEFAULT_DIFFICULTY)
 
-        combined = f"{challenge}:{nonce}".encode()
+        combined = f"{action}:{pubkey_hex}:{challenge}:{nonce}".encode()
         result_hash = hashlib.sha256(combined).hexdigest()
 
         leading_zeros = 0

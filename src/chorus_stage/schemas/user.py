@@ -1,55 +1,70 @@
 """User-related Pydantic schemas."""
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class UserIdentity(BaseModel):
-    """Schema for user registration/identity verification."""
+class PowEnvelope(BaseModel):
+    """Payload describing the proof-of-work presented during authentication."""
 
-    ed25519_pubkey: str = Field(..., description="Hex-encoded Ed25519 public key")
-    display_name: str | None = Field(None, description="Optional display name")
-    preferred_name: str | None = Field(None)
-    pronouns: str | None = Field(None)
-    gender_identity: str | None = Field(None)
-    sexual_orientation: str | None = Field(None)
-    bio: str | None = Field(None)
-    pgp_public_key_asc: str | None = Field(
-        None,
-        description="Optional PGP public key in ASCII armor format",
-    )
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    nonce: str = Field(..., description="Client-computed PoW nonce")
+    difficulty: int = Field(..., ge=1, description="Difficulty (leading zero bits) satisfied")
+    target: str = Field(..., description="Opaque PoW challenge identifier")
 
 
-class UserResponse(BaseModel):
-    """Schema for user information returned by the API."""
+class SignatureProof(BaseModel):
+    """Proof that the client controls the submitted public key."""
 
-    id: int
-    ed25519_pubkey: str = Field(..., description="Hex-encoded Ed25519 public key")
-    display_name: str | None
-    preferred_name: str | None
-    pronouns: str | None
-    gender_identity: str | None
-    sexual_orientation: str | None
-    bio: str | None
-    pgp_public_key: bool = Field(..., description="Whether user has a PGP public key")
-    mod_tokens_remaining: int
-    deleted: bool
+    challenge: str = Field(..., description="Opaque challenge string (base64 encoded)")
+    signature: str = Field(..., description="Signature over the challenge")
 
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize_fields(cls, data: object) -> object:
-        if isinstance(data, dict):
-            pubkey = data.get("ed25519_pubkey")
-            if isinstance(pubkey, bytes | bytearray):
-                data["ed25519_pubkey"] = pubkey.hex()
 
-            pgp_flag = data.get("pgp_public_key")
-            if isinstance(pgp_flag, bytes | bytearray) or (
-                pgp_flag is not None and not isinstance(pgp_flag, bool)
-            ):
-                data["pgp_public_key"] = bool(pgp_flag)
+class ChallengeRequest(BaseModel):
+    """Request to obtain a registration/login challenge."""
 
-        return data
+    pubkey: str = Field(..., description="Base64-encoded Ed25519 public key (32 bytes)")
+    intent: Literal["register", "login"] = Field(..., description="Handshake intent")
+
+
+class ChallengeResponse(BaseModel):
+    """Challenge payload returned to clients before authentication."""
+
+    pow_target: str = Field(..., description="Server-supplied PoW challenge identifier")
+    pow_difficulty: int = Field(..., description="Difficulty clients must satisfy")
+    signature_challenge: str = Field(..., description="Base64 challenge that must be signed")
+
+
+class RegisterRequest(BaseModel):
+    """Schema for anonymous key registration."""
+
+    pubkey: str = Field(..., description="Base64-encoded Ed25519 public key (32 bytes)")
+    display_name: str | None = Field(None, description="Optional persona label")
+    accent_color: str | None = Field(None, description="Optional client-specified accent color")
+    pow: PowEnvelope
+    proof: SignatureProof
+
+
+class RegisterResponse(BaseModel):
+    """Registration response containing the derived anonymous identifier."""
+
+    user_id: str = Field(..., description="URL-safe base64 encoded BLAKE3 digest of the public key")
+    created: bool = Field(..., description="True if a new record was inserted")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LoginRequest(BaseModel):
+    """Schema for login submissions."""
+
+    pubkey: str = Field(..., description="Base64-encoded Ed25519 public key (32 bytes)")
+    pow: PowEnvelope
+    proof: SignatureProof
+
+
+class LoginResponse(BaseModel):
+    """Response returned after successful login."""
+
+    access_token: str = Field(..., description="JWT access token")
+    token_type: str = Field(..., description="Token type (typically 'bearer')")
+    session_nonce: str = Field(..., description="Ephemeral nonce for client session binding")

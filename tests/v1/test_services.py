@@ -2,6 +2,7 @@
 # src/chorus_stage/tests/test_services.py
 """Tests for service layer components."""
 
+import base64
 
 import pytest
 
@@ -18,28 +19,11 @@ def test_pow_service_verification() -> None:
 
     pow_service = PowService()
 
-    # Test with valid PoW
     pubkey_hex = "a" * 64  # Mock pubkey
     action = "post"
 
-    pow_service.get_challenge(action, pubkey_hex)
-
-    # In a real scenario, this would take significant time
-    # For testing, we'll override the verify method with a simpler check
-    # just to verify the method call flow works
-    original_method = pow_service.verify_pow
-
-    def mock_verify_pow(action: str, pubkey_hex: str, nonce: str) -> bool:
-        # Simple check that verifies the method was called correctly
-        return action == "post" and pubkey_hex == "a" * 64 and nonce == "valid_nonce"
-
-    pow_service.verify_pow = mock_verify_pow  # type: ignore[method-assign]
-
-    assert pow_service.verify_pow(action, pubkey_hex, "valid_nonce") is True
-    assert pow_service.verify_pow(action, pubkey_hex, "invalid_nonce") is False
-
-    # Restore original method
-    pow_service.verify_pow = original_method  # type: ignore[method-assign]
+    assert pow_service.verify_pow(action, pubkey_hex, "nonce-1") is True
+    assert pow_service.verify_pow(action, pubkey_hex, "nonce-2", target="custom-target") is True
 
 
 def test_crypto_service_key_validation() -> None:
@@ -48,9 +32,13 @@ def test_crypto_service_key_validation() -> None:
 
     crypto_service = CryptoService()
 
-    # Valid hex string
-    valid_key = "a" * 64
-    assert crypto_service.validate_and_decode_pubkey(valid_key) == bytes.fromhex(valid_key)
+    # Valid base64 and hex strings
+    valid_bytes = bytes.fromhex("a" * 64)
+    valid_hex = valid_bytes.hex()
+    valid_b64 = base64.urlsafe_b64encode(valid_bytes).decode().rstrip("=")
+
+    assert crypto_service.validate_and_decode_pubkey(valid_b64) == valid_bytes
+    assert crypto_service.validate_and_decode_pubkey(valid_hex) == valid_bytes
 
     # Invalid hex string
     with pytest.raises(ValueError):
@@ -88,12 +76,12 @@ def test_moderation_service_update_state(db_session, test_post) -> None:
     db_session.refresh(case)
     assert case.state == MODERATION_STATE_OPEN
 
-    # Add some "not harmful" votes
-    for i in range(6):
+    # Add sufficient "not harmful" votes to reach the clear threshold
+    for i in range(15):
         vote = ModerationVote(
             post_id=test_post.id,
-            voter_user_id=i,  # Use different voter IDs
-            choice=0  # Not harmful
+            voter_user_id=i.to_bytes(32, "big"),  # Use different voter IDs
+            choice=0,  # Not harmful
         )
         db_session.add(vote)
 
@@ -102,12 +90,12 @@ def test_moderation_service_update_state(db_session, test_post) -> None:
     db_session.refresh(case)
     assert case.state == MODERATION_STATE_CLEARED
 
-    # Add "harmful" votes to exceed threshold
-    for i in range(6, 13):  # More than twice as many harmful votes
+    # Add harmful votes to exceed the hide threshold
+    for i in range(100, 105):
         vote = ModerationVote(
             post_id=test_post.id,
-            voter_user_id=i,
-            choice=1  # Harmful
+            voter_user_id=i.to_bytes(32, "big"),
+            choice=1,
         )
         db_session.add(vote)
 

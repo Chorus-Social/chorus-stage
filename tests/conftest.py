@@ -1,6 +1,7 @@
 # tests/conftest.py
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 from collections.abc import Callable, Generator, Iterator
@@ -18,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("PYTEST_RUNNING", "true")
 
+from chorus_stage.api.v1.endpoints import auth as auth_endpoints
 from chorus_stage.api.v1.endpoints import messages as messages_endpoints
 from chorus_stage.api.v1.endpoints import posts as posts_endpoints
 from chorus_stage.api.v1.endpoints import votes as votes_endpoints
@@ -26,7 +28,10 @@ from chorus_stage.core.settings import Settings
 from chorus_stage.db.session import Base
 from chorus_stage.db.session import get_db as app_get_session
 from chorus_stage.main import app as fastapi_app
-from chorus_stage.models import Community, DirectMessage, Post, SystemClock, User
+from chorus_stage.models import Community, DirectMessage, Post, SystemClock, User, UserState
+from chorus_stage.services.pow import get_pow_service
+from chorus_stage.services.replay import get_replay_service
+from chorus_stage.utils.hash import blake3_digest
 
 TEST_DB_URL = "sqlite://"
 
@@ -120,16 +125,59 @@ test_settings.secret_key = _TEST_SETTINGS_INSTANCE.secret_key  # type: ignore[at
 test_settings.login_challenge = _TEST_SETTINGS_INSTANCE.login_challenge  # type: ignore[attr-defined]
 
 
+def _encode_b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def _decode_b64(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
 def _generate_identity(display_name: str) -> dict[str, Any]:
     signing_key = SigningKey.generate()
     verify_key = signing_key.verify_key
-    pubkey_hex = verify_key.encode().hex()
+    pubkey_bytes = verify_key.encode()
+    pubkey_b64 = _encode_b64(pubkey_bytes)
+    user_id = blake3_digest(pubkey_bytes)
     return {
         "private_key": signing_key,
-        "pubkey_hex": pubkey_hex,
+        "pubkey_bytes": pubkey_bytes,
+        "pubkey_b64": pubkey_b64,
+        "pubkey_hex": pubkey_bytes.hex(),
+        "user_id": user_id,
         "user_identity": {
-            "ed25519_pubkey": pubkey_hex,
+            "pubkey": pubkey_b64,
             "display_name": display_name,
+        },
+    }
+
+
+def build_register_payload(identity: dict[str, Any]) -> dict[str, Any]:
+    from chorus_stage.services.crypto import CryptoService
+    from chorus_stage.services.pow import PowService
+
+    crypto = CryptoService()
+    pow_service = PowService()
+
+    pow_target, challenge_b64 = crypto.issue_auth_challenge("register", identity["pubkey_bytes"])
+    challenge_bytes = _decode_b64(challenge_b64)
+    signature = identity["private_key"].sign(challenge_bytes).signature  # type: ignore[attr-defined]
+
+    return {
+        "pubkey": identity["pubkey_b64"],
+        "display_name": identity["user_identity"]["display_name"],
+        "pow": {
+            "nonce": os.urandom(8).hex(),
+            "difficulty": pow_service.difficulties.get(
+                "register",
+                _TEST_SETTINGS_INSTANCE.pow_difficulty_register,
+            ),
+            "target": pow_target,
+        },
+        "proof": {
+            "challenge": challenge_b64,
+            "signature": _encode_b64(signature),
         },
     }
 
@@ -150,9 +198,11 @@ def other_user_data() -> dict[str, Any]:
 def test_user(db_session: Session, test_user_data: dict[str, Any]) -> Iterator[User]:
     """Create and return a persisted test user."""
     user = User(
-        ed25519_pubkey=bytes.fromhex(test_user_data["pubkey_hex"]),
+        user_id=test_user_data["user_id"],
+        pubkey=test_user_data["pubkey_bytes"],
         display_name=test_user_data["user_identity"]["display_name"],
     )
+    user.state = UserState(user_id=user.user_id)
     db_session.add(user)
     db_session.flush()
     db_session.refresh(user)
@@ -163,9 +213,11 @@ def test_user(db_session: Session, test_user_data: dict[str, Any]) -> Iterator[U
 def other_user(db_session: Session, other_user_data: dict[str, Any]) -> Iterator[User]:
     """Create and return a second persisted user."""
     user = User(
-        ed25519_pubkey=bytes.fromhex(other_user_data["pubkey_hex"]),
+        user_id=other_user_data["user_id"],
+        pubkey=other_user_data["pubkey_bytes"],
         display_name=other_user_data["user_identity"]["display_name"],
     )
+    user.state = UserState(user_id=user.user_id)
     db_session.add(user)
     db_session.flush()
     db_session.refresh(user)
@@ -175,14 +227,14 @@ def other_user(db_session: Session, other_user_data: dict[str, Any]) -> Iterator
 @pytest.fixture()
 def auth_token(test_user: User) -> dict[str, str]:
     """Return authorization headers for the primary test user."""
-    token = create_access_token({"sub": str(test_user.id)})
+    token = create_access_token(test_user.user_id)
     return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture()
 def other_auth_token(other_user: User) -> dict[str, str]:
     """Return authorization headers for the secondary test user."""
-    token = create_access_token({"sub": str(other_user.id)})
+    token = create_access_token(other_user.user_id)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -220,8 +272,8 @@ def test_post(db_session: Session, test_user: User) -> Iterator[Post]:
     content = "Test post content"
     post = Post(
         order_index=next(_POST_ORDER_COUNTER),
-        author_user_id=test_user.id,
-        author_pubkey=test_user.ed25519_pubkey,
+        author_user_id=test_user.user_id,
+        author_pubkey=test_user.pubkey,
         body_md=content,
         content_hash=hashlib.sha256(content.encode()).digest(),
         moderation_state=0,
@@ -242,8 +294,8 @@ def direct_message(
     """Create a sample direct message."""
     message = DirectMessage(
         order_index=next(_MESSAGE_ORDER_COUNTER),
-        sender_user_id=other_user.id,
-        recipient_user_id=test_user.id,
+        sender_user_id=other_user.user_id,
+        recipient_user_id=test_user.user_id,
         ciphertext=b"encrypted",
         header_blob=None,
         delivered=False,
@@ -256,34 +308,20 @@ def direct_message(
 
 @pytest.fixture()
 def mock_pow_service(app: FastAPI) -> Iterator[Any]:
-    """Override proof-of-work dependencies with a permissive stub."""
-
-    class _PowStub:
-        def verify_pow(self, action: str, pubkey_hex: str, nonce: str) -> bool:
-            return True
-
-        def is_pow_replay(self, action: str, pubkey_hex: str, nonce: str) -> bool:
-            return False
-
-        def register_pow(self, action: str, pubkey_hex: str, nonce: str) -> None:
-            return None
-
-        def get_challenge(self, action: str, pubkey_hex: str) -> str:
-            return "challenge"
-
-    stub = _PowStub()
+    """Override proof-of-work dependencies with the real service in test mode."""
 
     overrides: dict[Callable[..., Any], Callable[[], Any]] = {
-        posts_endpoints.get_pow_service_dep: lambda: stub,
-        votes_endpoints.get_pow_service_dep: lambda: stub,
-        messages_endpoints.get_pow_service_dep: lambda: stub,
+        posts_endpoints.get_pow_service_dep: get_pow_service,
+        votes_endpoints.get_pow_service_dep: get_pow_service,
+        messages_endpoints.get_pow_service_dep: get_pow_service,
+        auth_endpoints.get_pow_service_dep: get_pow_service,
     }
 
     for dependency, override in overrides.items():
         app.dependency_overrides[dependency] = override
 
     try:
-        yield stub
+        yield
     finally:
         for dependency in list(overrides):
             app.dependency_overrides.pop(dependency, None)
@@ -291,20 +329,14 @@ def mock_pow_service(app: FastAPI) -> Iterator[Any]:
 
 @pytest.fixture()
 def mock_replay_service(app: FastAPI) -> Iterator[Any]:
-    """Override replay protection dependency with a no-op stub."""
+    """Override replay protection dependency with the real service in test mode."""
 
-    class _ReplayStub:
-        def is_replay(self, pubkey_hex: str, client_nonce: str) -> bool:
-            return False
-
-        def register_replay(self, pubkey_hex: str, client_nonce: str) -> None:
-            return None
-
-    stub = _ReplayStub()
-    dependency = votes_endpoints.get_replay_service_dep
-    app.dependency_overrides[dependency] = lambda: stub
+    dependencies = [votes_endpoints.get_replay_service_dep, auth_endpoints.get_replay_service_dep]
+    for dependency in dependencies:
+        app.dependency_overrides[dependency] = get_replay_service
 
     try:
-        yield stub
+        yield
     finally:
-        app.dependency_overrides.pop(dependency, None)
+        for dependency in dependencies:
+            app.dependency_overrides.pop(dependency, None)

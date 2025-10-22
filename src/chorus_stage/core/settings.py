@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     pow_difficulty_vote: int = Field(default=15, alias="POW_DIFFICULTY_VOTE")
     pow_difficulty_message: int = Field(default=18, alias="POW_DIFFICULTY_MESSAGE")
     pow_difficulty_moderate: int = Field(default=16, alias="POW_DIFFICULTY_MODERATE")
+    pow_difficulty_register: int = Field(default=18, alias="POW_DIFFICULTY_REGISTER")
+    pow_difficulty_login: int = Field(default=16, alias="POW_DIFFICULTY_LOGIN")
 
     recent_window_size: int = Field(default=50, alias="RECENT_WINDOW_SIZE")
     controversial_min_total: int = Field(
@@ -44,8 +46,12 @@ class Settings(BaseSettings):
         alias="CONTROVERSIAL_MIN_TOTAL",
     )
     token_epoch_size: int = Field(default=10_000, alias="TOKEN_EPOCH_SIZE")
-    harmful_hide_threshold: float = Field(default=0.02, alias="HARMFUL_HIDE_THRESHOLD")
+    harmful_hide_threshold: float = Field(default=0.2, alias="HARMFUL_HIDE_THRESHOLD")
     clear_threshold: float = Field(default=0.6, alias="CLEAR_THRESHOLD")
+    moderation_min_community_size: int = Field(
+        default=25,
+        alias="MODERATION_MIN_COMMUNITY_SIZE",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
