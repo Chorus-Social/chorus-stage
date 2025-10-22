@@ -12,7 +12,11 @@ Chorus Stage is organized around a small set of domain-focused “agents.” Eac
 ### Auth Agent
 - **Role**: Owns Ed25519-based registration/login and JWT issuance.
 - **Code**: `src/chorus_stage/api/v1/endpoints/auth.py`
-- **Key flows**: Validates user keys via `CryptoService`, persists identities in the `User` model, and issues bearer tokens using `core.settings`.
+- **Key flows**: Validates URL-safe base64 keys via `CryptoService`, enforces registration proof-of-work and signature challenges, persists identities in the `anon_key` table, and issues bearer tokens using `core.settings`.
+- **Endpoints**:
+  - `POST /api/v1/auth/register`
+  - `POST /api/v1/auth/login`
+- **Schemas**: `schemas.user.RegisterRequest`, `schemas.user.RegisterResponse`
 
 ### Post Agent
 - **Role**: Handles feed ordering, post CRUD, and proof-of-work checks for submissions.
@@ -85,10 +89,9 @@ Chorus Stage is organized around a small set of domain-focused “agents.” Eac
 
 ## Interaction Summary
 
-1. **Client onboarding**: The Auth Agent validates an Ed25519 keypair and issues a JWT. Users optionally upload a PGP key for encrypted messaging.
+1. **Client onboarding**: The Auth Agent validates an Ed25519 keypair by checking PoW and a signed challenge, stores only the BLAKE3 user hash, and issues JWTs for downstream requests.
 2. **Content lifecycle**: Post Agent accepts content after PoW validation, indexing via the Deterministic Clock Agent. Vote Agent updates sentiment and harmful counters while replay protection prevents duplicate submissions.
 3. **Moderation loop**: Users spend tokens (tracked by Maintenance Agent) to open cases. Moderation Agent tallies votes and, when thresholds from `core.settings` are met, updates post visibility.
 4. **Private communication**: Messaging Agent ensures only encrypted blobs are stored, while Proof-of-Work and Replay Protection Agents rate-limit spam attempts.
 
 Understanding these agents and their touchpoints should make it straightforward to extend Chorus Stage or plug in additional infrastructure.
-

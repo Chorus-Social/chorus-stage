@@ -31,7 +31,7 @@ services:
       - chorus_db
     restart: always
     ports:
-      - 8080:8080
+      - 5532:8080
     networks:
       - chorus-network
 
