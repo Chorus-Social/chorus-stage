@@ -20,6 +20,8 @@ This documentation set is organised by feature area:
 - [`messages.md`](messages.md) – end-to-end encrypted direct messaging
 - [`moderation.md`](moderation.md) – moderation triggers, voting, and audit data
 - [`system.md`](system.md) – health checks and utility endpoints
+- [`users.md`](users.md) – anonymized user summaries and recent activity
+  - Includes transparency endpoints for config, clock, and moderation stats
 
 > ℹ️ **Authentication tokens**  
 > The “Authentication” subsection on each endpoint describes whether the
