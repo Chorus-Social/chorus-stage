@@ -237,3 +237,102 @@ def test_system_clock_increment(db_session) -> None:
     # Verify
     assert clock.day_seq == original_day + 1
     assert clock.hour_seq == (original_hour + 1) % 24
+
+
+def test_pow_leases_consume_without_pow(monkeypatch) -> None:
+    """Adaptive PoW leases allow actions without recomputing PoW."""
+    from chorus_stage.services.replay import ReplayProtectionService
+    from chorus_stage.services.pow import PowService
+    from chorus_stage.core import settings as core_settings
+
+    # Ensure leases are enabled and small counts for the test
+    monkeypatch.setattr(core_settings.settings, "pow_enable_leases", True)
+    monkeypatch.setattr(core_settings.settings, "pow_lease_actions", 2)
+    monkeypatch.setattr(core_settings.settings, "pow_lease_seconds", 60)
+
+    replay = ReplayProtectionService()
+    # Force real in-memory path (disable test short-circuit)
+    setattr(replay, "_testing_mode", False)
+    setattr(replay, "_redis", None)
+
+    pow_service = PowService(replay)
+    setattr(pow_service, "_testing_mode", False)
+
+    pubkey_hex = "b" * 64
+    # Pre-grant a lease so verify_pow will consume it instead of computing PoW
+    replay.grant_pow_lease(pubkey_hex, actions=2, ttl_seconds=60)
+
+    assert pow_service.verify_pow("post", pubkey_hex, nonce="n1") is True
+    assert pow_service.verify_pow("post", pubkey_hex, nonce="n2") is True
+
+    # Lease exhausted; with no valid PoW this should now fail
+    assert pow_service.verify_pow("post", pubkey_hex, nonce="n3") is False
+
+
+def test_register_pow_grants_lease(monkeypatch) -> None:
+    """Successful PoW registration grants a short-lived lease."""
+    from chorus_stage.services.replay import ReplayProtectionService
+    from chorus_stage.services.pow import PowService
+    from chorus_stage.core import settings as core_settings
+
+    monkeypatch.setattr(core_settings.settings, "pow_enable_leases", True)
+    monkeypatch.setattr(core_settings.settings, "pow_lease_actions", 2)
+    monkeypatch.setattr(core_settings.settings, "pow_lease_seconds", 60)
+
+    replay = ReplayProtectionService()
+    setattr(replay, "_testing_mode", False)
+    setattr(replay, "_redis", None)
+
+    pow_service = PowService(replay)
+    setattr(pow_service, "_testing_mode", False)
+
+    pubkey_hex = "c" * 64
+    pow_service.register_pow("post", pubkey_hex, nonce="any")
+
+    # The lease should exist and be consumable twice
+    assert replay.consume_pow_lease(pubkey_hex) is True
+    assert replay.consume_pow_lease(pubkey_hex) is True
+    assert replay.consume_pow_lease(pubkey_hex) is False
+
+
+def test_replay_pow_nonce_tracking_in_memory() -> None:
+    """In-memory replay tracking works when Redis is unavailable."""
+    from chorus_stage.services.replay import ReplayProtectionService
+
+    replay = ReplayProtectionService()
+    setattr(replay, "_testing_mode", False)
+    setattr(replay, "_redis", None)
+
+    action = "vote"
+    pubkey_hex = "d" * 64
+    nonce = "nonce-xyz"
+
+    assert replay.is_pow_replay(action, pubkey_hex, nonce) is False
+    replay.register_pow(action, pubkey_hex, nonce)
+    assert replay.is_pow_replay(action, pubkey_hex, nonce) is True
+
+
+def test_auth_challenge_binding_negative() -> None:
+    """Auth challenge is bound to intent, pubkey, and target."""
+    from chorus_stage.services.crypto import CryptoService
+
+    svc = CryptoService()
+    pubkey = bytes.fromhex("e" * 64)
+
+    target, challenge = svc.issue_auth_challenge("login", pubkey)
+
+    # Validates and returns the same target/nonce
+    nonce_hex = svc.validate_auth_challenge("login", pubkey, target, challenge)
+    assert nonce_hex == target
+
+    # Wrong pubkey
+    with pytest.raises(ValueError):
+        svc.validate_auth_challenge("login", b"\x00" * 32, target, challenge)
+
+    # Wrong target
+    with pytest.raises(ValueError):
+        svc.validate_auth_challenge("login", pubkey, target + "dead", challenge)
+
+    # Malformed challenge
+    with pytest.raises(ValueError):
+        svc.validate_auth_challenge("login", pubkey, target, "not-base64")

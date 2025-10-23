@@ -11,6 +11,7 @@ from chorus_stage.core.settings import settings
 from chorus_stage.services.replay import ReplayProtectionService, get_replay_service
 
 _DEFAULT_DIFFICULTY: Final[int] = settings.pow_difficulty_post
+CHALLENGE_WINDOW_SECONDS: Final[int] = 300
 _TEST_MODE: Final[bool] = os.getenv("PYTEST_RUNNING", "").lower() == "true"
 
 
@@ -31,7 +32,7 @@ class PowService:
 
     def get_challenge(self, action: str, pubkey_hex: str) -> str:
         """Return a deterministic challenge for a user/action bucket."""
-        bucket = int(time.time() // 300)  # 5 minute window
+        bucket = int(time.time() // CHALLENGE_WINDOW_SECONDS)  # 5 minute window
         data = f"{action}:{pubkey_hex}:{bucket}".encode()
         return hashlib.sha256(data).hexdigest()
 
@@ -45,6 +46,16 @@ class PowService:
         """Return True if the nonce satisfies the difficulty requirements."""
         if self._testing_mode:
             return True
+
+        # Adaptive lease: if enabled and a lease credit exists, consume it and
+        # allow the operation without recomputing PoW.
+        if settings.pow_enable_leases:
+            try:
+                if self._replay_service.consume_pow_lease(pubkey_hex):
+                    return True
+            except Exception:
+                # Fallback to hard PoW path if lease storage is unavailable
+                pass
 
         challenge = target or self.get_challenge(action, pubkey_hex)
         difficulty = self._difficulties.get(action, _DEFAULT_DIFFICULTY)
@@ -82,11 +93,27 @@ class PowService:
         if self._testing_mode:
             return
         self._replay_service.register_pow(action, pubkey_hex, nonce)
+        # Grant a small, short-lived lease after a successful PoW to smooth UX.
+        if settings.pow_enable_leases:
+            try:
+                self._replay_service.grant_pow_lease(
+                    pubkey_hex,
+                    actions=max(0, int(settings.pow_lease_actions)),
+                    ttl_seconds=max(0, int(settings.pow_lease_seconds)),
+                )
+            except Exception:
+                # If lease cannot be granted, continue without failing the call
+                pass
 
     @property
     def difficulties(self) -> dict[str, int]:
         """Expose difficulty configuration for testing purposes."""
         return dict(self._difficulties)
+
+    @property
+    def challenge_window_seconds(self) -> int:
+        """Return the PoW challenge window size in seconds."""
+        return int(CHALLENGE_WINDOW_SECONDS)
 
 
 def get_pow_service() -> PowService:

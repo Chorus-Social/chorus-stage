@@ -46,6 +46,35 @@ If you're here, you're part of the journey at an early but exciting stage. Here'
 
 ---
 
+## Documentation
+
+- API overview: `docs/api/overview.md`
+- Authentication: `docs/api/auth.md`
+- Error semantics: `docs/api/errors.md`
+- Proof-of-Work design: `docs/architecture/pow.md`
+- Moderation: `docs/moderation.md`
+- System and transparency: `docs/api/system.md`
+
+For a quick tour of the runtime agents and responsibilities, see `AGENTS.md`.
+
+---
+
+## Security
+
+Security and cryptography details are summarized in `SECURITY.md`, including
+the server threat model, primitives in use, PoW construction, and our audit
+roadmap. End-to-end encryption for messaging happens on clients; the server
+stores opaque ciphertext and optional protocol headers.
+
+---
+
+## Contributing and Roadmap
+
+We welcome contributions! Read `CONTRIBUTING.md` to get started and see
+`ROADMAP.md` for near-term priorities and stretch goals.
+
+---
+
 ## Core Principles Behind Chorus Stage
 
 - 🕵️‍♂️ **Anonymity First**: Users are identified only by unique, network-exclusive cryptographic keys generated locally on clients, never by personal data or reused accounts.  

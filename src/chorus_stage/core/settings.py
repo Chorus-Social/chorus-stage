@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     pow_difficulty_register: int = Field(default=18, alias="POW_DIFFICULTY_REGISTER")
     pow_difficulty_login: int = Field(default=16, alias="POW_DIFFICULTY_LOGIN")
 
+    # Adaptive PoW leases to smooth UX after a successful solve
+    pow_enable_leases: bool = Field(default=True, alias="POW_ENABLE_LEASES")
+    pow_lease_seconds: int = Field(default=120, alias="POW_LEASE_SECONDS")
+    pow_lease_actions: int = Field(default=3, alias="POW_LEASE_ACTIONS")
+
     recent_window_size: int = Field(default=50, alias="RECENT_WINDOW_SIZE")
     controversial_min_total: int = Field(
         default=5,
@@ -49,6 +54,19 @@ class Settings(BaseSettings):
     moderation_min_community_size: int = Field(
         default=25,
         alias="MODERATION_MIN_COMMUNITY_SIZE",
+    )
+
+    # Harmful vote cool-downs (anti-harassment throttling)
+    harmful_vote_author_cooldown_seconds: int = Field(
+        default=900, alias="HARMFUL_VOTE_AUTHOR_COOLDOWN_SECONDS"
+    )
+    harmful_vote_post_cooldown_seconds: int = Field(
+        default=120, alias="HARMFUL_VOTE_POST_COOLDOWN_SECONDS"
+    )
+
+    # Moderation trigger cool-down (limit rapid case creation)
+    moderation_trigger_cooldown_seconds: int = Field(
+        default=60, alias="MODERATION_TRIGGER_COOLDOWN_SECONDS"
     )
 
     model_config = SettingsConfigDict(
