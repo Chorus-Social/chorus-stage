@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from chorus_stage.db.session import get_db
@@ -170,3 +171,68 @@ async def get_community_posts(
 
     posts = query.order_by(desc(Post.order_index)).limit(limit).all()
     return posts
+
+
+@router.get("/{community_id}/top-authors")
+async def get_top_authors(
+    community_id: int,
+    db: SessionDep,
+    limit: int = 10,
+    metric: str = "posts",
+) -> list[dict[str, Any]]:
+    """Top authors in a community by selected metric.
+
+    Metrics:
+      - posts: total posts authored in the community
+      - engagement: (upvotes + downvotes) across authored posts
+      - harmful_ratio: downvotes / max(1, upvotes + downvotes)
+    """
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+
+    # Aggregate by author
+    rows = (
+        db.query(
+            Post.author_user_id,
+            func.count(Post.id).label("posts"),
+            func.sum(Post.upvotes).label("up"),
+            func.sum(Post.downvotes).label("down"),
+        )
+        .filter(Post.community_id == community_id, Post.deleted.is_(False))
+        .group_by(Post.author_user_id)
+        .all()
+    )
+
+    def score(row: Any) -> float:
+        if metric == "posts":
+            return float(row.posts or 0)
+        total = int((row.up or 0) + (row.down or 0))
+        if metric == "engagement":
+            return float(total)
+        # harmful_ratio
+        return float((row.down or 0) / max(1, total))
+
+    # Sort in Python due to computed ratios
+    sorted_rows = sorted(rows, key=score, reverse=True)[:limit]
+
+    def _b64(b: bytes | None) -> str | None:
+        if b is None:
+            return None
+        import base64
+        return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+    results: list[dict[str, Any]] = []
+    for r in sorted_rows:
+        total = int((r.up or 0) + (r.down or 0))
+        ratio = (r.down or 0) / max(1, total)
+        results.append(
+            {
+                "author_user_id": _b64(r.author_user_id),
+                "posts": int(r.posts or 0),
+                "upvotes": int(r.up or 0),
+                "downvotes": int(r.down or 0),
+                "harmful_ratio": float(ratio),
+            }
+        )
+    return results
