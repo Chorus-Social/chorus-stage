@@ -10,10 +10,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # Make imports work for src/ layout
       PYTHONPATH: src
-      # Use a stateless in-memory DB for tests
-      DATABASE_URL: 'sqlite+aiosqlite:///:memory:'
+      DATABASE_URL: "sqlite:///./ci-app.db"
+      TEST_DATABASE_URL: "sqlite:///./ci-test.db"
+      SECRET_KEY: "ci-secret-key"
+      USE_TEST_DATABASE: "false"
+      PRESERVE_TEST_DATA: "false"
+      ASCII_ART_ENABLED: "false"
       APP_ENV: test
 
     steps:
@@ -48,7 +51,7 @@ jobs:
         run: poetry install --no-interaction --no-root --with dev
 
       - name: Lint (ruff)
-        run: poetry run ruff check src tests
+        run: poetry run ruff check
 
       - name: Run tests
         env:
