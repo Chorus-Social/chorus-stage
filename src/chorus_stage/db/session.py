@@ -18,7 +18,7 @@ class Base(DeclarativeBase):
 import chorus_stage.models  # noqa: E402,F401
 
 engine = create_engine(
-    settings.database_url,
+    settings.effective_database_url,
     pool_pre_ping=True,
     echo=settings.sql_debug,
 )

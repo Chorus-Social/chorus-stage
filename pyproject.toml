@@ -35,6 +35,7 @@ greenlet = "^3.0.3"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["migrations"]
 
 [tool.ruff.lint]
 extend-select = ["I", "F", "E", "W", "UP", "B", "SIM", "PL"]
@@ -53,6 +54,7 @@ warn_unused_configs = true
 ignore_missing_imports = true
 strict_optional = true
 exclude = ["migrations/"]
+files = ["src", "tests"]
 
 [build-system]
 requires = ["poetry-core"]

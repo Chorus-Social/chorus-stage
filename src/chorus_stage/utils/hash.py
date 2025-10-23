@@ -5,13 +5,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 from collections.abc import Callable
-from typing import Protocol
-
-try:  # pragma: no cover - optional dependency path
-    from blake3 import blake3 as _blake3
-except Exception:  # pragma: no cover - runtime fallback
-    _blake3 = None
+from typing import TYPE_CHECKING, Protocol, cast
 
 
 class _Blake3Like(Protocol):
@@ -20,6 +16,21 @@ class _Blake3Like(Protocol):
     def digest(self) -> bytes: ...
 
     def hexdigest(self) -> str: ...
+
+
+Blake3Factory = Callable[[bytes], _Blake3Like]
+
+if TYPE_CHECKING:  # pragma: no cover - typing helper
+    from blake3 import blake3 as _blake3_type  # noqa: F401
+
+try:  # pragma: no cover - optional dependency path
+    from blake3 import blake3 as _blake3_constructor
+except Exception:  # pragma: no cover - runtime fallback
+    _blake3: Blake3Factory | None = None
+else:
+    _blake3 = cast(Blake3Factory, _blake3_constructor)
+
+_RUNNING_ON_PY314 = sys.version_info[:2] == (3, 14)
 
 
 def _hash_fallback(data: bytes) -> _Blake3Like:
@@ -38,14 +49,18 @@ def _hash_fallback(data: bytes) -> _Blake3Like:
     return _Wrapper(data)
 
 
-def blake3_factory() -> Callable[[bytes], _Blake3Like]:
+def blake3_factory() -> Blake3Factory:
     """Return a callable that mimics the BLAKE3 constructor.
 
     The compiled `blake3` wheel segfaults on some Python 3.14 builds, so we
     gracefully degrade to a blake2s-based shim whenever the import fails.
     """
 
-    if _blake3 is not None and os.getenv("PYTEST_RUNNING", "").lower() != "true":
+    if (
+        _blake3 is not None
+        and os.getenv("PYTEST_RUNNING", "").lower() != "true"
+        and not _RUNNING_ON_PY314
+    ):
         return _blake3
     return _hash_fallback
 

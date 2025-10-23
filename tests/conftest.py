@@ -6,14 +6,14 @@ import hashlib
 import os
 from collections.abc import Callable, Generator, Iterator
 from itertools import count
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from nacl.signing import SigningKey
 from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -24,7 +24,7 @@ from chorus_stage.api.v1.endpoints import messages as messages_endpoints
 from chorus_stage.api.v1.endpoints import posts as posts_endpoints
 from chorus_stage.api.v1.endpoints import votes as votes_endpoints
 from chorus_stage.api.v1.endpoints.auth import create_access_token
-from chorus_stage.core.settings import Settings
+from chorus_stage.core.settings import Settings, settings
 from chorus_stage.db.session import Base
 from chorus_stage.db.session import get_db as app_get_session
 from chorus_stage.main import app as fastapi_app
@@ -33,26 +33,38 @@ from chorus_stage.services.pow import get_pow_service
 from chorus_stage.services.replay import get_replay_service
 from chorus_stage.utils.hash import blake3_digest
 
-TEST_DB_URL = "sqlite://"
+TEST_DB_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+psycopg://chorus_testing:blowItUp@localhost:5433/chorus_testing",
+)
 
 _POST_ORDER_COUNTER = count(1)
 _COMMUNITY_ORDER_COUNTER = count(1)
 _MESSAGE_ORDER_COUNTER = count(1)
-_TEST_SETTINGS_INSTANCE = Settings()
+_TEST_SETTINGS_INSTANCE = Settings()  # type: ignore[call-arg]
+PRESERVE_TEST_DATA = settings.preserve_test_data
 
 
 @pytest.fixture(scope="session")
 def engine() -> Generator[Engine, None, None]:
-    engine = create_engine(
-        TEST_DB_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=engine)
+    url = make_url(TEST_DB_URL)
+    sqlite_backend = url.drivername.startswith("sqlite")
+
+    if sqlite_backend:
+        engine = create_engine(
+            TEST_DB_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(bind=engine)
+    else:
+        engine = create_engine(TEST_DB_URL, pool_pre_ping=True)
+
     try:
         yield engine
     finally:
-        Base.metadata.drop_all(bind=engine)
+        if sqlite_backend:
+            Base.metadata.drop_all(bind=engine)
         engine.dispose()
 
 
@@ -70,7 +82,8 @@ def db_session(engine: Engine) -> Iterator[Session]:
     session.begin_nested()
 
     @event.listens_for(session, "after_transaction_end")
-    def restart_savepoint(sess: Session, trans) -> None:  # pragma: no cover - SQLAlchemy internals
+    def restart_savepoint(sess: Session, trans: Any) -> None:
+        """Re-establish nested savepoints for transactional tests."""
         if trans.nested and not getattr(trans._parent, "nested", False):
             session.begin_nested()
 
@@ -85,9 +98,10 @@ def db_session(engine: Engine) -> Iterator[Session]:
         connection.close()
 
         # Ensure each test sees a clean database even if commits occurred.
-        with engine.begin() as cleanup_conn:
-            for table in reversed(Base.metadata.sorted_tables):
-                cleanup_conn.execute(table.delete())
+        if not PRESERVE_TEST_DATA:
+            with engine.begin() as cleanup_conn:
+                for table in reversed(Base.metadata.sorted_tables):
+                    cleanup_conn.execute(table.delete())
 
 
 @pytest.fixture(scope="session")
@@ -121,8 +135,8 @@ def test_settings() -> Settings:
 
 # Some legacy tests import the fixture function directly; expose attributes on the
 # definition so those imports continue to work without invoking pytest's fixture machinery.
-test_settings.secret_key = _TEST_SETTINGS_INSTANCE.secret_key  # type: ignore[attr-defined]
-test_settings.login_challenge = _TEST_SETTINGS_INSTANCE.login_challenge  # type: ignore[attr-defined]
+cast(Any, test_settings).secret_key = _TEST_SETTINGS_INSTANCE.secret_key
+cast(Any, test_settings).login_challenge = _TEST_SETTINGS_INSTANCE.login_challenge
 
 
 def _encode_b64(data: bytes) -> str:
@@ -162,7 +176,8 @@ def build_register_payload(identity: dict[str, Any]) -> dict[str, Any]:
 
     pow_target, challenge_b64 = crypto.issue_auth_challenge("register", identity["pubkey_bytes"])
     challenge_bytes = _decode_b64(challenge_b64)
-    signature = identity["private_key"].sign(challenge_bytes).signature  # type: ignore[attr-defined]
+    signing_key = cast(SigningKey, identity["private_key"])
+    signature = signing_key.sign(challenge_bytes).signature
 
     return {
         "pubkey": identity["pubkey_b64"],

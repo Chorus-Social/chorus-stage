@@ -11,18 +11,16 @@ class Settings(BaseSettings):
     app_version: str = Field(default="0.1.0", alias="APP_VERSION")
     admin_email: str | None = Field(default=None, alias="ADMIN_EMAIL")
 
-    secret_key: str = Field(
-        default="CHANGE_ME_IN_PRODUCTION_USE_ENVIRONMENT_VARIABLE",
-        alias="SECRET_KEY",
-    )
+    secret_key: str = Field(alias="SECRET_KEY")
     debug: bool = Field(default=False, alias="DEBUG")
 
     database_url: str = Field(default="sqlite:///./chorus.db", alias="DATABASE_URL")
+    test_database_url: str | None = Field(default=None, alias="TEST_DATABASE_URL")
+    use_testing_database: bool = Field(default=False, alias="USE_TEST_DATABASE")
+    preserve_test_data: bool = Field(default=False, alias="PRESERVE_TEST_DATA")
+    ascii_art_enabled: bool = Field(default=True, alias="ASCII_ART_ENABLED")
+    ascii_art_line_delay: float = Field(default=0.05, alias="ASCII_ART_LINE_DELAY")
     sql_debug: bool = Field(default=False, alias="SQL_DEBUG")
-
-    postgres_db: str | None = Field(default=None, alias="POSTGRES_DB")
-    postgres_user: str | None = Field(default=None, alias="POSTGRES_USER")
-    postgres_password: str | None = Field(default=None, alias="POSTGRES_PASSWORD")
 
     redis_url: str = Field(default="redis://localhost:6379", alias="REDIS_URL")
 
@@ -62,8 +60,16 @@ class Settings(BaseSettings):
     @property
     def database_url_sync(self) -> str:
         """Return a sync-compatible database URL for tooling."""
-        if str(self.database_url).startswith("postgresql+asyncpg"):
-            return str(self.database_url).replace("postgresql+asyncpg", "postgresql+psycopg", 1)
+        url = self.effective_database_url
+        if url.startswith("postgresql+asyncpg"):
+            return url.replace("postgresql+asyncpg", "postgresql+psycopg", 1)
+        return url
+
+    @property
+    def effective_database_url(self) -> str:
+        """Return the database URL respecting testing overrides."""
+        if self.use_testing_database and self.test_database_url:
+            return self.test_database_url
         return self.database_url
 
     @property
@@ -75,4 +81,4 @@ class Settings(BaseSettings):
         }
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]
