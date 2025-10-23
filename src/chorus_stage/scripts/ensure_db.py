@@ -1,6 +1,7 @@
-"""Utility script to ensure the configured Postgres database exists."""
+"""Utility script to manage the configured Postgres database."""
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from urllib.parse import urlsplit, urlunsplit
@@ -82,9 +83,40 @@ def ensure_database_exists(db_url: str) -> None:
             print(f"[ensure_db] database {target_db} already exists")
 
 
-if __name__ == "__main__":
+def drop_all_tables(db_url: str) -> None:
+    """Drop and recreate the public schema for the configured database."""
+    with psycopg.connect(db_url, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
+        cur.execute("CREATE SCHEMA public")
+        cur.execute("GRANT ALL ON SCHEMA public TO CURRENT_USER")
+        cur.execute("GRANT ALL ON SCHEMA public TO public")
+    print("[ensure_db] dropped all tables in public schema")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Ensure or reset the configured database")
+    parser.add_argument(
+        "--drop-tables",
+        action="store_true",
+        help="Drop and recreate the public schema before ensuring the database exists.",
+    )
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="Override database URL (defaults to effective settings URL)",
+    )
+    args = parser.parse_args()
+
+    raw_url = args.url or settings.effective_database_url
     try:
-        ensure_database_exists(normalize_to_psycopg(settings.database_url))
-    except Exception as e:
-        print(f"[ensure_db] ERROR: {e}", file=sys.stderr)
+        normalized_url = normalize_to_psycopg(raw_url)
+        ensure_database_exists(normalized_url)
+        if args.drop_tables:
+            drop_all_tables(normalized_url)
+    except Exception as exc:
+        print(f"[ensure_db] ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

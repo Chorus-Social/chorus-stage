@@ -1,9 +1,9 @@
 # --------- Chorus Makefile (Python 3.14 + psycopg) ----------
-# Boring. Reliable. Future-you will thank past-you.
 
 SHELL := /bin/bash
 PY := python3.14
 UVICORN := uvicorn
+TEST := pytest
 APP_MODULE := chorus_stage.main:app
 PORT ?= 8080
 PYTHONPATH := src
@@ -13,9 +13,11 @@ POETRY := poetry
 ALEMBIC := $(POETRY) run alembic
 
 # Sync URL for Alembic (psycopg sync); app uses async via settings
-ALEMBIC_URL ?= postgresql+psycopg://chorus:is-cool@localhost:5432/chorus
+LIVE_URL ?= postgresql+psycopg://chorus:is-cool@localhost:5432/chorus_live
 
-.PHONY: help install lock venv info run dev db-init migrate revision downgrade reset-db lint fmt test clean
+TEST_URL ?= postgresql+pyscopg://chorus_testing:blowItUp@localhost:5432/chorus_testing
+
+.PHONY: help install lock venv info run dev db-init migrate revision downgrade reset-db db-hard-reset lint fmt test clean
 
 help:
 	@echo "targets: install | run | dev | db-init | migrate | revision | downgrade | reset-db | lint | fmt | test | info | clean"
@@ -37,27 +39,39 @@ info:
 
 # ----- app -----
 run:
+	docker compose down --remove-orphans || true
+	docker compose up -d
 	$(POETRY) run $(UVICORN) $(APP_MODULE) --host 0.0.0.0 --port $(PORT)
 
 dev: db-init run
 
+# ----- checkpoints -----
+alpha:
+	$(POETRY) run $(PY) -m chorus_stage.scripts.test_checkpoint_alpha --base-url http://127.0.0.1:8080
+
 # ----- database bootstrap + migrations -----
 db-init:
-	# Create DB if missing (sync psycopg connection)
 	$(POETRY) run $(PY) -m chorus_stage.scripts.ensure_db
-	# Apply migrations to head
-	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) upgrade head
+	$(POETRY) run $(PY) -m chorus_stage.scripts.migrate
 
 migrate:
-	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) upgrade head
+	$(POETRY) run $(PY) -m chorus_stage.scripts.migrate
 
-revision:
+live-revision:
 	# Autogenerate a migration from current models
-	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) revision --autogenerate -m "$(m)"
+	SQLALCHEMY_URL="$(LIVE_URL)" $(ALEMBIC) revision --autogenerate -m "$(m)"
+
+test-revision:
+	# Autogenerate a migration from current models
+	SQLALCHEMY_URL="$(TEST_URL)" $(ALEMBIC) revision --autogenerate -m "$(m)"
 
 downgrade:
 	# Example: make downgrade r=-1  (or r=base)
-	SQLALCHEMY_URL="$(ALEMBIC_URL)" $(ALEMBIC) downgrade $(r)
+	$(POETRY) run alembic downgrade $(r)
+
+db-hard-reset:
+	$(POETRY) run $(PY) -m chorus_stage.scripts.ensure_db --drop-tables
+	$(POETRY) run $(PY) -m chorus_stage.scripts.migrate
 
 # ----- quality -----
 lint:

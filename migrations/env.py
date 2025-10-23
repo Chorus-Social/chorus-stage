@@ -1,6 +1,7 @@
 """Alembic configuration and migration helpers."""
 from __future__ import annotations
 
+import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -24,7 +25,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-if config is not None and not config.get_main_option("sqlalchemy.url"):
+alembic_url = os.getenv("ALEMBIC_URL")
+if alembic_url:
+    config.set_main_option("sqlalchemy.url", alembic_url)
+elif config is not None and not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", settings.database_url_sync)
 
 target_metadata = Base.metadata

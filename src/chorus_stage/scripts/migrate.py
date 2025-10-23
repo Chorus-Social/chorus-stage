@@ -13,7 +13,7 @@ def run_upgrade_head() -> None:
     """Run Alembic migrations up to the latest revision."""
     project_root = Path(__file__).resolve().parents[3]
     migrations_dir = project_root / "migrations"
-    alembic_ini = migrations_dir / "alembic.ini"
+    alembic_ini = project_root / "alembic.ini"
 
     cfg = Config(str(alembic_ini))
     cfg.set_main_option("sqlalchemy.url", settings.database_url_sync)
