@@ -12,6 +12,7 @@ from chorus_stage.models import Post, PostVote, User
 from chorus_stage.schemas.vote import VoteCreate
 from chorus_stage.services.pow import PowService, get_pow_service
 from chorus_stage.services.replay import ReplayProtectionService, get_replay_service
+from chorus_stage.core.settings import settings
 
 from .posts import get_current_user
 
@@ -130,6 +131,17 @@ async def cast_vote(
 ) -> dict[str, str]:
     """Cast a vote on a post with proof of work verification."""
     post = _get_post_or_404(db, vote_data.post_id)
+
+    # If casting a harmful vote, enforce per-author and per-post cooldowns
+    if vote_data.direction == -1:
+        voter_pubkey_hex = current_user.pubkey.hex()
+        author_hex = post.author_user_id.hex()
+        if replay_service.is_harmful_vote_cooldown_author(voter_pubkey_hex, author_hex) or \
+           replay_service.is_harmful_vote_cooldown_post(voter_pubkey_hex, post.id):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Harmful vote cool-down active; please wait before voting again",
+            )
     _validate_pow_and_replay(
         pow_service=pow_service,
         replay_service=replay_service,
@@ -142,6 +154,8 @@ async def cast_vote(
         PostVote.voter_user_id == current_user.user_id,
     ).first()
 
+    prev_dir = existing_vote.direction if existing_vote else 0
+    became_harmful = vote_data.direction == -1 and prev_dir != -1
     if existing_vote:
         _handle_existing_vote(existing_vote=existing_vote, vote_data=vote_data, post=post, db=db)
     else:
@@ -149,6 +163,19 @@ async def cast_vote(
 
     if vote_data.direction == -1:
         _refresh_harmful_votes(db, post, vote_data.post_id)
+        # Apply cooldowns only when a harmful vote is newly recorded
+        if became_harmful:
+            voter_pubkey_hex = current_user.pubkey.hex()
+            replay_service.set_harmful_vote_cooldown_author(
+                voter_pubkey_hex,
+                post.author_user_id.hex(),
+                settings.harmful_vote_author_cooldown_seconds,
+            )
+            replay_service.set_harmful_vote_cooldown_post(
+                voter_pubkey_hex,
+                post.id,
+                settings.harmful_vote_post_cooldown_seconds,
+            )
 
     db.commit()
     return {"status": "success"}

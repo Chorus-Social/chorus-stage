@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -14,10 +14,14 @@ from chorus_stage.models import (
     ModerationVote,
     Post,
     User,
+    Community,
 )
 from chorus_stage.models.moderation import MODERATION_STATE_OPEN
+from sqlalchemy import func
 from chorus_stage.schemas.post import PostResponse
 from chorus_stage.services.moderation import ModerationService
+from chorus_stage.services.replay import get_replay_service
+from chorus_stage.core.settings import settings
 
 from .posts import get_current_user, get_system_clock
 
@@ -59,6 +63,14 @@ async def trigger_moderation(
     db: SessionDep,
 ) -> dict[str, int | str]:
     """Trigger moderation for a post using a moderation token."""
+    # Global trigger cool-down to avoid rapid case creation
+    replay_service = get_replay_service()
+    user_hex = current_user.user_id.hex()
+    if replay_service.is_moderation_trigger_cooldown(user_hex):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many moderation triggers; please slow down",
+        )
     post = (
         db.query(Post)
         .filter(Post.id == post_id, Post.deleted.is_(False))
@@ -109,6 +121,11 @@ async def trigger_moderation(
     )
     db.add(trigger)
     db.commit()
+    # Apply small trigger cool-down after success
+    replay_service.set_moderation_trigger_cooldown(
+        user_hex,
+        settings.moderation_trigger_cooldown_seconds,
+    )
 
     return {"status": "moderation_triggered", "case_id": case.post_id}
 
@@ -201,3 +218,300 @@ async def get_moderation_history(
         }
         for case in cases
     ]
+
+
+def _get_community_by_slug(db: Session, slug: str) -> Community | None:
+    return db.query(Community).filter(Community.internal_slug == slug).first()
+
+
+@router.get("/community/{internal_slug}/stats")
+async def get_community_moderation_stats(
+    internal_slug: str,
+    db: SessionDep,
+) -> dict[str, Any]:
+    """Aggregated moderation stats for a community (by slug)."""
+    community = _get_community_by_slug(db, internal_slug)
+    if community is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+
+    total_cases = (
+        db.query(func.count())
+        .select_from(ModerationCase)
+        .filter(ModerationCase.community_id == community.id)
+        .scalar()
+        or 0
+    )
+    counts = (
+        db.query(
+            func.sum(func.cast(ModerationCase.state == 0, Integer())),
+            func.sum(func.cast(ModerationCase.state == 1, Integer())),
+            func.sum(func.cast(ModerationCase.state == 2, Integer())),
+        )
+        .filter(ModerationCase.community_id == community.id)
+        .one()
+    )
+    open_cases = int(counts[0] or 0)
+    cleared_cases = int(counts[1] or 0)
+    hidden_cases = int(counts[2] or 0)
+
+    harmful_votes = (
+        db.query(func.count())
+        .select_from(ModerationVote)
+        .join(ModerationCase, ModerationCase.post_id == ModerationVote.post_id)
+        .filter(ModerationCase.community_id == community.id, ModerationVote.choice == 1)
+        .scalar()
+        or 0
+    )
+    not_harmful_votes = (
+        db.query(func.count())
+        .select_from(ModerationVote)
+        .join(ModerationCase, ModerationCase.post_id == ModerationVote.post_id)
+        .filter(ModerationCase.community_id == community.id, ModerationVote.choice == 0)
+        .scalar()
+        or 0
+    )
+
+    top_posts = (
+        db.query(Post.id, Post.harmful_vote_count, Post.moderation_state)
+        .filter(Post.community_id == community.id, Post.deleted.is_(False))
+        .order_by(Post.harmful_vote_count.desc())
+        .limit(10)
+        .all()
+    )
+
+    return {
+        "community_id": community.id,
+        "internal_slug": community.internal_slug,
+        "cases": {
+            "total": int(total_cases),
+            "open": open_cases,
+            "cleared": cleared_cases,
+            "hidden": hidden_cases,
+        },
+        "votes": {
+            "harmful": int(harmful_votes),
+            "not_harmful": int(not_harmful_votes),
+        },
+        "top_flagged_posts": [
+            {
+                "post_id": pid,
+                "harmful_vote_count": int(hcount or 0),
+                "moderation_state": int(state or 0),
+            }
+            for (pid, hcount, state) in top_posts
+        ],
+    }
+
+
+@router.get("/community/{internal_slug}/cases")
+async def list_community_cases(
+    internal_slug: str,
+    db: SessionDep,
+    limit: int = Query(50, le=100),
+    before: int | None = Query(None),
+) -> list[dict[str, int]]:
+    """List case summaries within a specific community (by slug)."""
+    community = _get_community_by_slug(db, internal_slug)
+    if community is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+
+    query = db.query(ModerationCase).filter(ModerationCase.community_id == community.id)
+    if before is not None:
+        query = query.filter(ModerationCase.opened_order_index < before)
+    cases = query.order_by(ModerationCase.opened_order_index.desc()).limit(limit).all()
+
+    results: list[dict[str, int]] = []
+    for case in cases:
+        harmful = (
+            db.query(func.count())
+            .select_from(ModerationVote)
+            .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 1)
+            .scalar()
+            or 0
+        )
+        not_harmful = (
+            db.query(func.count())
+            .select_from(ModerationVote)
+            .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 0)
+            .scalar()
+            or 0
+        )
+        post = db.query(Post).filter(Post.id == case.post_id).first()
+        results.append(
+            {
+                "post_id": case.post_id,
+                "state": case.state,
+                "opened_order_index": int(case.opened_order_index),
+                "closed_order_index": int(case.closed_order_index) if case.closed_order_index else 0,
+                "harmful_votes": int(harmful),
+                "not_harmful_votes": int(not_harmful),
+                "harmful_vote_count": int(post.harmful_vote_count) if post else 0,
+            }
+        )
+    return results
+
+
+def _collect_ledger_events(db: Session, community_id: int | None = None) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+
+    # Case opened
+    query = db.query(ModerationCase)
+    if community_id is not None:
+        query = query.filter(ModerationCase.community_id == community_id)
+    for case in query.all():
+        events.append(
+            {
+                "type": "case_opened",
+                "post_id": case.post_id,
+                "community_id": case.community_id,
+                "order_index": int(case.opened_order_index),
+            }
+        )
+
+    # Case closed
+    query = db.query(ModerationCase).filter(ModerationCase.closed_order_index.isnot(None))
+    if community_id is not None:
+        query = query.filter(ModerationCase.community_id == community_id)
+    for case in query.all():
+        events.append(
+            {
+                "type": "case_closed",
+                "post_id": case.post_id,
+                "community_id": case.community_id,
+                "order_index": int(case.closed_order_index),
+            }
+        )
+
+    # Triggers
+    trig_query = db.query(ModerationTrigger)
+    if community_id is not None:
+        trig_query = (
+            db.query(ModerationTrigger)
+            .join(Post, Post.id == ModerationTrigger.post_id)
+            .filter(Post.community_id == community_id)
+        )
+    for trig in trig_query.all():
+        # Resolve community via Post
+        post = db.query(Post).filter(Post.id == trig.post_id).first()
+        events.append(
+            {
+                "type": "trigger",
+                "post_id": trig.post_id,
+                "community_id": post.community_id if post else 0,
+                "order_index": int(trig.day_seq),
+            }
+        )
+
+    events.sort(key=lambda e: int(e["order_index"]), reverse=True)
+    return events
+
+
+@router.get("/ledger")
+async def get_moderation_ledger(
+    db: SessionDep,
+    limit: int = Query(50, le=200),
+    before: int | None = Query(None),
+) -> list[dict[str, Any]]:
+    """Public anonymized ledger of moderation activity across the network."""
+    events = _collect_ledger_events(db)
+    if before is not None:
+        events = [e for e in events if int(e["order_index"]) < before]
+    return events[:limit]
+
+
+@router.get("/community/{internal_slug}/ledger")
+async def get_community_moderation_ledger(
+    internal_slug: str,
+    db: SessionDep,
+    limit: int = Query(50, le=200),
+    before: int | None = Query(None),
+) -> list[dict[str, Any]]:
+    """Public anonymized ledger of moderation activity within a community."""
+    community = _get_community_by_slug(db, internal_slug)
+    if community is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
+    events = _collect_ledger_events(db, community_id=community.id)
+    if before is not None:
+        events = [e for e in events if int(e["order_index"]) < before]
+    return events[:limit]
+
+
+@router.get("/case/{post_id}/summary")
+async def get_case_summary(
+    post_id: int,
+    db: SessionDep,
+) -> dict[str, int]:
+    """Return a summary of moderation voting for a specific post."""
+    case = db.query(ModerationCase).filter(ModerationCase.post_id == post_id).first()
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
+    harmful = (
+        db.query(func.count())
+        .select_from(ModerationVote)
+        .filter(ModerationVote.post_id == post_id, ModerationVote.choice == 1)
+        .scalar()
+        or 0
+    )
+    not_harmful = (
+        db.query(func.count())
+        .select_from(ModerationVote)
+        .filter(ModerationVote.post_id == post_id, ModerationVote.choice == 0)
+        .scalar()
+        or 0
+    )
+    post = db.query(Post).filter(Post.id == post_id).first()
+    return {
+        "post_id": post_id,
+        "community_id": post.community_id if post else 0,
+        "state": case.state,
+        "opened_order_index": int(case.opened_order_index),
+        "closed_order_index": int(case.closed_order_index) if case.closed_order_index else 0,
+        "harmful_votes": int(harmful),
+        "not_harmful_votes": int(not_harmful),
+        "harmful_vote_count": int(post.harmful_vote_count) if post else 0,
+    }
+
+
+@router.get("/cases")
+async def list_case_summaries(
+    db: SessionDep,
+    limit: int = Query(50, le=100),
+    before: int | None = Query(None),
+) -> list[dict[str, int]]:
+    """List recent moderation cases with anonymized summaries."""
+    query = db.query(ModerationCase)
+    if before is not None:
+        query = query.filter(ModerationCase.opened_order_index < before)
+    cases = query.order_by(ModerationCase.opened_order_index.desc()).limit(limit).all()
+
+    results: list[dict[str, int]] = []
+    for case in cases:
+        harmful = (
+            db.query(func.count())
+            .select_from(ModerationVote)
+            .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 1)
+            .scalar()
+            or 0
+        )
+        not_harmful = (
+            db.query(func.count())
+            .select_from(ModerationVote)
+            .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 0)
+            .scalar()
+            or 0
+        )
+        post = db.query(Post).filter(Post.id == case.post_id).first()
+        results.append(
+            {
+                "post_id": case.post_id,
+                "community_id": post.community_id if post else 0,
+                "state": case.state,
+                "opened_order_index": int(case.opened_order_index),
+                "closed_order_index": int(case.closed_order_index) if case.closed_order_index else 0,
+                "harmful_votes": int(harmful),
+                "not_harmful_votes": int(not_harmful),
+                "harmful_vote_count": int(post.harmful_vote_count) if post else 0,
+            }
+        )
+    return results
