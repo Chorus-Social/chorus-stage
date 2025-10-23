@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Poetry
+        uses: abatilo/actions-poetry@v2
+        with:
+          poetry-version: '1.8.3'
+      - name: Install deps
+        run: poetry install --no-interaction
+      - name: Run unit tests
+        env:
+          PYTEST_RUNNING: 'true'
+          TEST_DATABASE_URL: 'sqlite:///./test.db'
+        run: make test-unit
+
+  full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Poetry
+        uses: abatilo/actions-poetry@v2
+        with:
+          poetry-version: '1.8.3'
+      - name: Install deps
+        run: poetry install --no-interaction
+      - name: Run full test suite (sqlite)
+        env:
+          PYTEST_RUNNING: 'true'
+          TEST_DATABASE_URL: 'sqlite:///./test.db'
+        run: make test
