@@ -1,37 +1,40 @@
-# System & Utility Endpoints
+# System and Transparency Endpoints
 
-These endpoints provide operational insight and are unauthenticated unless noted.
+These endpoints expose non-sensitive, aggregated information about the running
+service to support transparency and community oversight.
 
-## GET `/health`
+Base path: `/api/v1/system`
 
-- **Summary:** Simple liveness probe exposed by the FastAPI gateway.
-- **Authentication:** None
-- **Response — `200 OK`**
-  ```json
-  { "status": "ok" }
-  ```
+## GET `/config`
 
-## GET `/`
+- Summary: Return a sanitized snapshot of runtime configuration.
+- Authentication: None
 
-- **Summary:** Root metadata describing the API and documentation locations.
-- **Authentication:** None
-- **Response — `200 OK`**
-  ```json
-  {
-    "name": "Chorus API",
-    "version": "1.0.0",
-    "description": "Anonymous-by-design social network API",
-    "docs": "/docs",
-    "redoc": "/redoc"
-  }
-  ```
+Example response:
+{
+  "app": {"name": "Chorus Stage", "version": "0.1.0", "jwt_algorithm": "HS256", "access_token_expire_minutes": 43200, "debug": false},
+  "pow": {"difficulties": {"post": 20, "vote": 15, "message": 18, "moderate": 16, "register": 18, "login": 16}, "challenge_window_seconds": 300, "leases": {"enabled": true, "seconds": 120, "actions": 3}},
+  "moderation": {"thresholds": {"min_votes": 5.0, "hide_ratio": 0.2}, "min_community_size": 25, "cooldowns": {"harmful_vote_author_seconds": 900, "harmful_vote_post_seconds": 120, "trigger_seconds": 60}}
+}
 
-## OpenAPI Schema `/openapi.json`
+## GET `/clock`
 
-- Machine-readable OpenAPI specification. Useful for code generation or
-  documentation systems.
+- Summary: Expose the deterministic system clock counters.
+- Authentication: None
 
-## Interactive Docs `/docs` and `/redoc`
+Example response:
+{ "day_seq": 1234, "hour_seq": 17 }
 
-- Swagger UI (`/docs`) and ReDoc (`/redoc`) are enabled by default when the app
-  is running. Both reference the live schema at `/openapi.json`.
+## GET `/moderation-stats`
+
+- Summary: Return aggregated moderation stats without revealing identities.
+- Authentication: None
+
+Example response:
+{
+  "cases": {"total": 42, "open": 10, "cleared": 20, "hidden": 12},
+  "votes": {"harmful": 100, "not_harmful": 250},
+  "per_community": [{"community_id": 1, "internal_slug": "general", "cases": 12}],
+  "top_flagged_posts": [{"post_id": 7, "harmful_vote_count": 9, "moderation_state": 2}]
+}
+

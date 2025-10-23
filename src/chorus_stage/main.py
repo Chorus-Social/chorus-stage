@@ -15,6 +15,8 @@ from chorus_stage.api.v1 import (
     communities_router,
     messages_router,
     moderation_router,
+    users_router,
+    system_router,
     posts_router,
     votes_router,
 )
@@ -37,6 +39,8 @@ app.include_router(votes_router, prefix="/api/v1")
 app.include_router(communities_router, prefix="/api/v1")
 app.include_router(messages_router, prefix="/api/v1")
 app.include_router(moderation_router, prefix="/api/v1")
+app.include_router(system_router, prefix="/api/v1")
+app.include_router(users_router, prefix="/api/v1")
 
 
 async def _render_ascii_art() -> None:
