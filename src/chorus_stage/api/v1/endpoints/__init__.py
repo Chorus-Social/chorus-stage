@@ -5,9 +5,9 @@ from .auth import router as auth_router
 from .communities import router as communities_router
 from .messages import router as messages_router
 from .moderation import router as moderation_router
-from .users import router as users_router
-from .system import router as system_router
 from .posts import router as posts_router
+from .system import router as system_router
+from .users import router as users_router
 from .votes import router as votes_router
 
 __all__ = [

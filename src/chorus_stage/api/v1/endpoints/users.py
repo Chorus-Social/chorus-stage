@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from chorus_stage.db.session import get_db
 from chorus_stage.models import (
     Community,
-    ModerationCase,
     ModerationTrigger,
     ModerationVote,
     Post,
@@ -50,7 +49,10 @@ async def get_user_summary(user_id: str, db: SessionDep) -> dict[str, Any]:
 
     # Posts and comments
     total_posts = (
-        db.query(func.count()).select_from(Post).filter(Post.author_user_id == user_id_bytes).scalar() or 0
+        db.query(func.count())
+        .select_from(Post)
+        .filter(Post.author_user_id == user_id_bytes)
+        .scalar() or 0
     )
     total_comments = (
         db.query(func.count())

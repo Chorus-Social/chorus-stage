@@ -45,7 +45,6 @@ class ModerationVote(Base):
     )
     voter_user_id: Mapped[bytes] = mapped_column(
         LargeBinary(32),
-        ForeignKey("anon_key.user_id"),
         primary_key=True,
     )
     # 1 = harmful, 0 = not harmful.

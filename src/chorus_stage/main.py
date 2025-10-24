@@ -15,12 +15,14 @@ from chorus_stage.api.v1 import (
     communities_router,
     messages_router,
     moderation_router,
-    users_router,
-    system_router,
     posts_router,
+    system_router,
+    users_router,
     votes_router,
 )
 from chorus_stage.core.settings import settings
+from chorus_stage.services.bridge import bridge_enabled, get_bridge_client
+from chorus_stage.services.bridge_sync import BridgeSyncWorker
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -73,6 +75,21 @@ async def _render_ascii_art() -> None:
 @app.on_event("startup")
 async def on_startup() -> None:
     await _render_ascii_art()
+    if bridge_enabled():
+        worker = BridgeSyncWorker(get_bridge_client())
+        await worker.start()
+        app.state.bridge_worker = worker
+    else:
+        app.state.bridge_worker = None
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    worker: BridgeSyncWorker | None = getattr(app.state, "bridge_worker", None)
+    if worker:
+        await worker.stop()
+    if bridge_enabled():
+        await get_bridge_client().close()
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:

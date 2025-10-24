@@ -26,6 +26,14 @@ class Post(Base):
     )
     author_pubkey: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
+    # Global identifier assigned by the bridge; may be null for legacy/local rows.
+    federation_post_id: Mapped[bytes | None] = mapped_column(
+        LargeBinary(32),
+        nullable=True,
+        unique=True,
+    )
+    federation_origin: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Parent chain for comments; top-level posts have parent_post_id = NULL.
     parent_post_id: Mapped[int | None] = mapped_column(
         BigInteger,

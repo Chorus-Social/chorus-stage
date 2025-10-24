@@ -24,6 +24,7 @@ from chorus_stage.schemas.user import (
     RegisterRequest,
     RegisterResponse,
 )
+from chorus_stage.services.bridge import BridgeDisabledError, get_bridge_client
 from chorus_stage.services.crypto import CryptoService
 from chorus_stage.services.pow import PowService, get_pow_service
 from chorus_stage.services.replay import ReplayProtectionService, get_replay_service
@@ -240,6 +241,21 @@ async def register_user(
 
     user_hash = blake3_digest(pubkey_bytes)
 
+    creation_day = 0
+    if settings.bridge_enabled:
+        try:
+            bridge_client = get_bridge_client()
+            day_proof = await bridge_client.fetch_day_proof(day=0) # Placeholder for current day
+            if day_proof:
+                creation_day = day_proof.day_number
+        except BridgeDisabledError:
+            # Bridge is disabled, use default creation_day
+            pass
+        except Exception as e:
+            # Log the error and proceed with default creation_day
+            print(f"Error fetching day proof from bridge: {e}")
+            pass
+
     user = db.query(User).filter(User.pubkey == pubkey_bytes).first()
     created = False
     if user is None:
@@ -248,6 +264,7 @@ async def register_user(
             pubkey=pubkey_bytes,
             display_name=payload.display_name,
             accent_color=payload.accent_color,
+            creation_day=creation_day,
         )
         user.state = UserState(user_id=user_hash)
         db.add(user)
@@ -264,6 +281,24 @@ async def register_user(
     # Register replay artifacts after the transaction succeeds.
     pow_service.register_pow("register", pubkey_hex, payload.pow.nonce)
     replay_service.register_replay(pubkey_hex, challenge_nonce_hex)
+
+    # Federate user registration if bridge is enabled
+    if settings.bridge_enabled:
+        try:
+            bridge_client = get_bridge_client()
+            idempotency_key = f"user-registration-{user_hash.hex()}"
+            user_registration_envelope = await bridge_client.create_user_registration_envelope(
+                user_pubkey_bytes=pubkey_bytes,
+                creation_day=creation_day,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(
+                db, user_registration_envelope, idempotency_key
+            )
+        except BridgeDisabledError:
+            print("Bridge is disabled, user registration not federated.")
+        except Exception as e:
+            print(f"Error federating user registration: {e}")
 
     user_id_b64 = _encode_b64(user.user_id)
     return RegisterResponse(user_id=user_id_b64, created=created)

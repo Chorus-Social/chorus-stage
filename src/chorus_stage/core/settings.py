@@ -69,6 +69,62 @@ class Settings(BaseSettings):
         default=60, alias="MODERATION_TRIGGER_COOLDOWN_SECONDS"
     )
 
+    # Chorus Bridge integration
+    bridge_enabled: bool = Field(default=False, alias="CHORUS_BRIDGE_ENABLED")
+    bridge_base_url: str | None = Field(default=None, alias="CHORUS_BRIDGE_BASE_URL")
+    bridge_instance_id: str = Field(
+        default="stage-local",
+        alias="CHORUS_BRIDGE_INSTANCE_ID",
+    )
+    bridge_shared_secret: str | None = Field(
+        default=None,
+        alias="CHORUS_BRIDGE_SHARED_SECRET",
+    )
+    bridge_audience: str = Field(
+        default="chorus-bridge",
+        alias="CHORUS_BRIDGE_JWT_AUD",
+    )
+    bridge_token_ttl_seconds: int = Field(
+        default=300,
+        alias="CHORUS_BRIDGE_TOKEN_TTL_SECONDS",
+    )
+    bridge_http_timeout_seconds: float = Field(
+        default=10.0,
+        alias="CHORUS_BRIDGE_HTTP_TIMEOUT_SECONDS",
+    )
+    bridge_pull_interval_seconds: float = Field(
+        default=2.0,
+        alias="CHORUS_BRIDGE_PULL_INTERVAL_SECONDS",
+    )
+    bridge_outbound_batch_size: int = Field(
+        default=10,
+        alias="CHORUS_BRIDGE_OUTBOUND_BATCH_SIZE",
+    )
+    bridge_outbound_max_retries: int = Field(
+        default=5,
+        alias="CHORUS_BRIDGE_OUTBOUND_MAX_RETRIES",
+    )
+    bridge_mtls_enabled: bool = Field(
+        default=False,
+        alias="CHORUS_BRIDGE_MTLS_ENABLED",
+    )
+    bridge_client_cert: str | None = Field(
+        default=None,
+        alias="CHORUS_BRIDGE_CLIENT_CERT",
+    )
+    bridge_client_key: str | None = Field(
+        default=None,
+        alias="CHORUS_BRIDGE_CLIENT_KEY",
+    )
+    bridge_ca_cert: str | None = Field(
+        default=None,
+        alias="CHORUS_BRIDGE_CA_CERT",
+    )
+    bridge_instance_private_key: str | None = Field(
+        default=None,
+        alias="CHORUS_BRIDGE_INSTANCE_PRIVATE_KEY",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         validate_assignment=True,
@@ -97,6 +153,11 @@ class Settings(BaseSettings):
             "min_votes": float(self.controversial_min_total),
             "hide_ratio": self.harmful_hide_threshold,
         }
+
+    @property
+    def settings(self) -> "Settings":
+        """Provide self-reference for legacy imports expecting a module attribute."""
+        return self
 
 
 settings = Settings()  # type: ignore[call-arg]

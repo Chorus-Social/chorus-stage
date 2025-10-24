@@ -3,6 +3,8 @@
 
 import base64
 import hashlib
+import secrets
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,9 +15,14 @@ from sqlalchemy.orm import Session
 
 from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
-from chorus_stage.models import Post, SystemClock, User
-from chorus_stage.models.moderation import MODERATION_STATE_HIDDEN, MODERATION_STATE_OPEN
+from chorus_stage.models import Community, Post, SystemClock, User
+from chorus_stage.models.moderation import (
+    MODERATION_STATE_HIDDEN,
+    MODERATION_STATE_OPEN,
+)
+# from chorus_stage.proto import federation_pb2  # Imported conditionally to avoid protobuf issues
 from chorus_stage.schemas.post import PostCreate, PostResponse
+from chorus_stage.services.bridge import BridgeDisabledError, BridgeError, BridgePostSubmission, get_bridge_client
 from chorus_stage.services.pow import PowService, get_pow_service
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -116,7 +123,6 @@ async def list_posts(
 
     # Apply community filter if specified
     if community_slug:
-        from chorus_stage.models import Community
         community = db.query(Community).filter(
             Community.internal_slug == community_slug
         ).first()
@@ -226,6 +232,8 @@ async def create_post(
             detail="Content hash does not match content",
         )
 
+    parent: Post | None = None
+    parent_federation_id: str | None = None
     if post_data.parent_post_id is not None:
         parent = db.query(Post).filter(
             Post.id == post_data.parent_post_id,
@@ -236,12 +244,13 @@ async def create_post(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Parent post not found",
             )
+        if parent.federation_post_id:
+            parent_federation_id = parent.federation_post_id.hex()
 
     # Find community if specified
     community_id: int | None = None
+    community_slug: str | None = None
     if post_data.community_internal_slug:
-        from chorus_stage.models import Community
-
         community = db.query(Community).filter(
             Community.internal_slug == post_data.community_internal_slug
         ).first()
@@ -251,13 +260,59 @@ async def create_post(
                 detail="Community not found",
             )
         community_id = community.id
+        community_slug = community.internal_slug
 
-    # Get next order_index from system clock
+
+
     clock = get_system_clock(db)
 
-    # Create the post
+    bridge_registration_result = None
+    bridge_client = get_bridge_client()
+    if bridge_client.enabled:
+        entropy_payload = (
+            current_user.pubkey
+            + computed_hash
+            + post_data.pow_nonce.encode("utf-8")
+        )
+        idempotency_key = hashlib.blake2b(entropy_payload, digest_size=16).hexdigest()
+
+        submission = BridgePostSubmission(
+            author_pubkey_hex=current_user.pubkey.hex(),
+            content_hash_hex=computed_hash.hex(),
+            body_md=post_data.content_md,
+            community_slug=community_slug,
+            parent_federation_post_id=parent_federation_id,
+            pow_nonce=post_data.pow_nonce,
+            pow_difficulty=post_data.pow_difficulty,
+        )
+
+        try:
+            bridge_registration_result = await bridge_client.register_post(
+                submission,
+                idempotency_key=idempotency_key,
+            )
+        except BridgeDisabledError:
+            bridge_registration_result = None
+        except BridgeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Bridge registration failed: {exc}",
+            ) from exc
+
+    if bridge_registration_result:
+        order_index = bridge_registration_result.order_index
+        federation_post_id = bridge_registration_result.post_id
+        federation_origin = bridge_registration_result.origin_instance
+        # Update clock.day_seq if necessary based on bridge_registration_result.day_number
+        # For now, we'll just use local clock and generated ID
+    else:
+        order_index = clock.day_seq
+        clock.day_seq += 1 # Increment local clock if not using bridge
+        federation_post_id = None
+        federation_origin = settings.bridge_instance_id if bridge_client.enabled else None
+
     new_post = Post(
-        order_index=clock.day_seq,
+        order_index=order_index,
         author_user_id=current_user.user_id,
         author_pubkey=current_user.pubkey,
         parent_post_id=post_data.parent_post_id,
@@ -266,12 +321,59 @@ async def create_post(
         content_hash=computed_hash,
         moderation_state=MODERATION_STATE_OPEN,
         harmful_vote_count=0,
+        federation_post_id=federation_post_id,
+        federation_origin=federation_origin,
     )
 
-    clock.day_seq += 1
     db.add(new_post)
     db.commit()
     db.refresh(new_post)
+
+    # Create and send federation envelope for post announcement
+    if bridge_client.enabled:
+        try:
+            idempotency_key = secrets.token_hex(8)
+
+            # Create PostAnnouncement envelope
+            # Import protobuf module conditionally
+            from chorus_stage.proto import federation_pb2
+            
+            # Use getattr to safely access protobuf classes
+            try:
+                # Get the protobuf classes dynamically
+                PostAnnouncement = getattr(federation_pb2, 'PostAnnouncement')
+                FederationEnvelope = getattr(federation_pb2, 'FederationEnvelope')
+                
+                # Create protobuf messages using the classes
+                post_announcement = PostAnnouncement(
+                    post_id=federation_post_id or b"",  # Use federation_post_id if available
+                    author_pubkey=current_user.pubkey,
+                    content_hash=computed_hash,
+                    order_index=order_index,
+                    creation_day=clock.day_seq,
+                )
+
+                federation_envelope = FederationEnvelope(
+                    sender_instance=settings.bridge_instance_id,
+                    timestamp=int(time.time()),
+                    message_type="PostAnnouncement",
+                    message_data=post_announcement.SerializeToString(),
+                    signature=b"" # Will be signed by bridge client
+                )
+
+                envelope_bytes = federation_envelope.SerializeToString()
+
+                # Send to bridge for federation
+                await bridge_client.send_federation_envelope(db, envelope_bytes, idempotency_key)
+            except AttributeError:
+                print("Warning: Protobuf classes not available, skipping federation")
+
+        except BridgeError as exc:
+            print(f"Error exporting post to ActivityPub bridge: {exc}")
+            # Log error, but don't block post creation
+        except (AttributeError, ValueError, TypeError) as e:
+            print(f"Warning: Failed to create federation envelope for post: {e}")
+            # Continue without federation
 
     pow_service.register_pow("post", author_pubkey_hex, post_data.pow_nonce)
 
@@ -300,5 +402,24 @@ async def delete_post(
         )
 
     # Soft delete - mark as deleted but keep in database
-    post.deleted = True
     db.commit()
+
+    # Federate post deletion event if bridge is enabled
+    if settings.bridge_enabled:
+        bridge_client = get_bridge_client()
+        # Use post.id as target_ref, current_user.user_id as moderator_user_id_bytes
+        # and post.order_index as creation_day (or current day_seq if available)
+        # For simplicity, using post.order_index as creation_day for the event
+        idempotency_key = f"post-delete-{post_id}-{current_user.user_id.hex()}-{post.order_index}"
+        try:
+            serialized_envelope = await bridge_client.create_post_delete_envelope(
+                post_id=post_id,
+                moderator_user_id_bytes=current_user.user_id,
+                creation_day=post.order_index,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(db, serialized_envelope, idempotency_key)
+        except BridgeDisabledError:
+            print("Bridge is disabled, post deletion not federated.")
+        except (BridgeError, ValueError, TypeError) as e:
+            print(f"Error federating post deletion: {e}")

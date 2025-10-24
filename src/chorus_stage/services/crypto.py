@@ -137,7 +137,7 @@ class CryptoService:
 
         nonce_bytes = secrets.token_bytes(16)
         pow_target = nonce_bytes.hex()
-        secret = settings.secret_key.encode()
+        secret: bytes = str(settings.secret_key).encode()
         payload = b"|".join(
             (
                 intent.encode(),
@@ -182,7 +182,8 @@ class CryptoService:
         if nonce_bytes.hex() != pow_target:
             raise ValueError("Challenge does not match provided proof target")
 
-        secret = settings.secret_key.encode()
+        secret_key_str: str = str(settings.secret_key)
+        secret: bytes = secret_key_str.encode()
         payload = b"|".join(
             (
                 intent.encode(),
@@ -196,3 +197,37 @@ class CryptoService:
             raise ValueError("Challenge signature mismatch")
 
         return nonce_bytes.hex()
+
+    @staticmethod
+    def sign_message(private_key_bytes: bytes, message: bytes) -> bytes:
+        """Sign a message with an Ed25519 private key.
+
+        Args:
+            private_key_bytes: Raw Ed25519 private key bytes
+            message: Message to sign
+
+        Returns:
+            Raw signature bytes
+        """
+        try:
+            private_key = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+            return private_key.sign(message)
+        except ValueError as err:
+            raise ValueError(f"Invalid private key: {err}") from err
+
+    @staticmethod
+    def sign_message_hex(private_key_hex: str, message: bytes) -> bytes:
+        """Sign a message with a hex-encoded Ed25519 private key.
+
+        Args:
+            private_key_hex: Hex-encoded Ed25519 private key
+            message: Message to sign
+
+        Returns:
+            Raw signature bytes
+        """
+        try:
+            private_key_bytes = bytes.fromhex(private_key_hex)
+            return CryptoService.sign_message(private_key_bytes, message)
+        except ValueError as err:
+            raise ValueError(f"Invalid private key hex: {err}") from err

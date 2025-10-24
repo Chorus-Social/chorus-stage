@@ -3,6 +3,7 @@
 
 from .community import Community, CommunityMember
 from .direct_message import DirectMessage
+from .federation_outbound import FederationOutbound
 from .moderation import ModerationCase, ModerationTrigger, ModerationVote
 from .post import Post
 from .replay_protection import NonceReplay
@@ -18,5 +19,6 @@ __all__ = [
     "NonceReplay",
     "SystemClock",
     "User", "UserState",
-    "PostVote"
+    "PostVote",
+    "FederationOutbound"
 ]

@@ -5,30 +5,63 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import Integer, func
+from sqlalchemy.sql import functions
 from sqlalchemy.orm import Session
 
+from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
 from chorus_stage.models import (
+    Community,
     ModerationCase,
     ModerationTrigger,
     ModerationVote,
     Post,
     User,
-    Community,
 )
 from chorus_stage.models.moderation import MODERATION_STATE_OPEN
-from sqlalchemy import func
 from chorus_stage.schemas.post import PostResponse
+from chorus_stage.services.bridge import BridgeDisabledError, BridgeError, get_bridge_client
 from chorus_stage.services.moderation import ModerationService
 from chorus_stage.services.replay import get_replay_service
-from chorus_stage.core.settings import settings
 
 from .posts import get_current_user, get_system_clock
+
+# Moderation case states
+MODERATION_STATE_PENDING = 1
+MODERATION_STATE_CLOSED = 2
 
 router = APIRouter(prefix="/moderation", tags=["moderation"])
 moderation_service = ModerationService()
 SessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+def _ensure_default_community(db: Session) -> int:
+    """Ensure a fallback community exists for moderation bookkeeping."""
+
+    default_slug = "global-feed"
+    community = (
+        db.query(Community)
+        .filter(Community.internal_slug == default_slug)
+        .first()
+    )
+    if community:
+        return community.id
+
+    clock = get_system_clock(db)
+    community = Community(
+        internal_slug=default_slug,
+        display_name="Global Feed",
+        description_md=None,
+        is_profile_like=False,
+        order_index=clock.day_seq,
+    )
+    clock.day_seq += 1
+    db.add(community)
+    db.commit()
+    db.refresh(community)
+    return community.id
 
 
 @router.get("/queue", response_model=list[PostResponse])
@@ -63,14 +96,6 @@ async def trigger_moderation(
     db: SessionDep,
 ) -> dict[str, int | str]:
     """Trigger moderation for a post using a moderation token."""
-    # Global trigger cool-down to avoid rapid case creation
-    replay_service = get_replay_service()
-    user_hex = current_user.user_id.hex()
-    if replay_service.is_moderation_trigger_cooldown(user_hex):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many moderation triggers; please slow down",
-        )
     post = (
         db.query(Post)
         .filter(Post.id == post_id, Post.deleted.is_(False))
@@ -89,6 +114,14 @@ async def trigger_moderation(
             detail="You have already triggered moderation for this post today",
         )
 
+    replay_service = get_replay_service()
+    user_hex = current_user.user_id.hex()
+    if replay_service.is_moderation_trigger_cooldown(user_hex):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many moderation triggers; please slow down",
+        )
+
     if not moderation_service.consume_moderation_token(current_user.user_id, db):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -101,9 +134,10 @@ async def trigger_moderation(
     if case is None:
         clock = get_system_clock(db)
         trigger_day_seq = clock.day_seq
+        community_id = post.community_id or _ensure_default_community(db)
         case = ModerationCase(
             post_id=post_id,
-            community_id=post.community_id or 1,
+            community_id=community_id,
             state=MODERATION_STATE_OPEN,
             opened_order_index=clock.day_seq,
         )
@@ -126,6 +160,25 @@ async def trigger_moderation(
         user_hex,
         settings.moderation_trigger_cooldown_seconds,
     )
+
+    # Federate moderation trigger event if bridge is enabled
+    if settings.bridge_enabled:
+        bridge_client = get_bridge_client()
+        idempotency_key = (
+            f"moderation-trigger-{post_id}-{current_user.user_id.hex()}-{trigger_day_seq}"
+        )
+        try:
+            serialized_envelope = await bridge_client.create_moderation_trigger_envelope(
+                post_id=post_id,
+                trigger_user_id_bytes=current_user.user_id,
+                creation_day=trigger_day_seq,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(db, serialized_envelope, idempotency_key)
+        except BridgeDisabledError:
+            print("Bridge is disabled, moderation trigger not federated.")
+        except Exception as e:
+            print(f"Error federating moderation trigger: {e}")
 
     return {"status": "moderation_triggered", "case_id": case.post_id}
 
@@ -153,9 +206,10 @@ async def vote_on_moderation(
     case = db.query(ModerationCase).filter(ModerationCase.post_id == post_id).first()
     if case is None:
         clock = get_system_clock(db)
+        community_id = post.community_id or _ensure_default_community(db)
         case = ModerationCase(
             post_id=post_id,
-            community_id=post.community_id or 1,
+            community_id=community_id,
             state=MODERATION_STATE_OPEN,
             opened_order_index=clock.day_seq,
         )
@@ -186,8 +240,25 @@ async def vote_on_moderation(
             )
         )
 
-    moderation_service.update_moderation_state(post_id, db)
+    await moderation_service.update_moderation_state(post_id, db)
     db.commit()
+
+    # Anchor moderation event to Bridge (if enabled)
+    if settings.bridge_enabled:
+        bridge_client = get_bridge_client()
+        event_data = {
+            "post_id": post_id,
+            "voter_user_id": current_user.user_id.hex(),
+            "choice": choice,
+            # Add other relevant hashes/minimal data as per CFP-006/CFP-005
+        }
+        try:
+            await bridge_client.anchor_moderation_event(db, event_data)
+        except BridgeDisabledError:
+            pass # Bridge moderation anchoring is disabled, do nothing
+        except BridgeError as exc:
+            print(f"Error anchoring moderation vote to Bridge: {exc}")
+            # Log error, but don't block local moderation action
 
     return {"status": "vote_recorded"}
 
@@ -235,7 +306,7 @@ async def get_community_moderation_stats(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found")
 
     total_cases = (
-        db.query(func.count())
+        db.query(functions.count())
         .select_from(ModerationCase)
         .filter(ModerationCase.community_id == community.id)
         .scalar()
@@ -243,9 +314,9 @@ async def get_community_moderation_stats(
     )
     counts = (
         db.query(
-            func.sum(func.cast(ModerationCase.state == 0, Integer())),
-            func.sum(func.cast(ModerationCase.state == 1, Integer())),
-            func.sum(func.cast(ModerationCase.state == 2, Integer())),
+            func.sum(functions.cast(ModerationCase.state == MODERATION_STATE_OPEN, Integer())),
+            func.sum(functions.cast(ModerationCase.state == MODERATION_STATE_PENDING, Integer())),
+            func.sum(functions.cast(ModerationCase.state == MODERATION_STATE_CLOSED, Integer())),
         )
         .filter(ModerationCase.community_id == community.id)
         .one()
@@ -255,7 +326,7 @@ async def get_community_moderation_stats(
     hidden_cases = int(counts[2] or 0)
 
     harmful_votes = (
-        db.query(func.count())
+        db.query(functions.count())
         .select_from(ModerationVote)
         .join(ModerationCase, ModerationCase.post_id == ModerationVote.post_id)
         .filter(ModerationCase.community_id == community.id, ModerationVote.choice == 1)
@@ -263,7 +334,7 @@ async def get_community_moderation_stats(
         or 0
     )
     not_harmful_votes = (
-        db.query(func.count())
+        db.query(functions.count())
         .select_from(ModerationVote)
         .join(ModerationCase, ModerationCase.post_id == ModerationVote.post_id)
         .filter(ModerationCase.community_id == community.id, ModerationVote.choice == 0)
@@ -323,14 +394,14 @@ async def list_community_cases(
     results: list[dict[str, int]] = []
     for case in cases:
         harmful = (
-            db.query(func.count())
+            db.query(functions.count())
             .select_from(ModerationVote)
             .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 1)
             .scalar()
             or 0
         )
         not_harmful = (
-            db.query(func.count())
+            db.query(functions.count())
             .select_from(ModerationVote)
             .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 0)
             .scalar()
@@ -342,7 +413,9 @@ async def list_community_cases(
                 "post_id": case.post_id,
                 "state": case.state,
                 "opened_order_index": int(case.opened_order_index),
-                "closed_order_index": int(case.closed_order_index) if case.closed_order_index else 0,
+                "closed_order_index": (
+                    int(case.closed_order_index) if case.closed_order_index else 0
+                ),
                 "harmful_votes": int(harmful),
                 "not_harmful_votes": int(not_harmful),
                 "harmful_vote_count": int(post.harmful_vote_count) if post else 0,
@@ -378,7 +451,7 @@ def _collect_ledger_events(db: Session, community_id: int | None = None) -> list
                 "type": "case_closed",
                 "post_id": case.post_id,
                 "community_id": case.community_id,
-                "order_index": int(case.closed_order_index),
+                "order_index": int(case.closed_order_index) if case.closed_order_index is not None else 0,
             }
         )
 
@@ -447,14 +520,14 @@ async def get_case_summary(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
 
     harmful = (
-        db.query(func.count())
+        db.query(functions.count())
         .select_from(ModerationVote)
         .filter(ModerationVote.post_id == post_id, ModerationVote.choice == 1)
         .scalar()
         or 0
     )
     not_harmful = (
-        db.query(func.count())
+        db.query(functions.count())
         .select_from(ModerationVote)
         .filter(ModerationVote.post_id == post_id, ModerationVote.choice == 0)
         .scalar()
@@ -463,7 +536,7 @@ async def get_case_summary(
     post = db.query(Post).filter(Post.id == post_id).first()
     return {
         "post_id": post_id,
-        "community_id": post.community_id if post else 0,
+        "community_id": int(post.community_id) if post and post.community_id is not None else 0,
         "state": case.state,
         "opened_order_index": int(case.opened_order_index),
         "closed_order_index": int(case.closed_order_index) if case.closed_order_index else 0,
@@ -488,14 +561,14 @@ async def list_case_summaries(
     results: list[dict[str, int]] = []
     for case in cases:
         harmful = (
-            db.query(func.count())
+            db.query(functions.count())
             .select_from(ModerationVote)
             .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 1)
             .scalar()
             or 0
         )
         not_harmful = (
-            db.query(func.count())
+            db.query(functions.count())
             .select_from(ModerationVote)
             .filter(ModerationVote.post_id == case.post_id, ModerationVote.choice == 0)
             .scalar()
@@ -505,10 +578,14 @@ async def list_case_summaries(
         results.append(
             {
                 "post_id": case.post_id,
-                "community_id": post.community_id if post else 0,
+                "community_id": (
+                    int(post.community_id) if post and post.community_id is not None else 0
+                ),
                 "state": case.state,
                 "opened_order_index": int(case.opened_order_index),
-                "closed_order_index": int(case.closed_order_index) if case.closed_order_index else 0,
+                "closed_order_index": (
+                    int(case.closed_order_index) if case.closed_order_index else 0
+                ),
                 "harmful_votes": int(harmful),
                 "not_harmful_votes": int(not_harmful),
                 "harmful_vote_count": int(post.harmful_vote_count) if post else 0,

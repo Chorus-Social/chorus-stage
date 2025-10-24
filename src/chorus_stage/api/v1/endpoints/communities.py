@@ -6,16 +6,18 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import func
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
 from chorus_stage.models import Community, CommunityMember, Post, User
 from chorus_stage.models.moderation import MODERATION_STATE_HIDDEN
 from chorus_stage.schemas.community import CommunityCreate, CommunityResponse
 from chorus_stage.schemas.post import PostResponse
+from chorus_stage.services.bridge import BridgeDisabledError, BridgeError, get_bridge_client
 
-from .posts import get_current_user
+from .posts import get_current_user, get_system_clock
 
 router = APIRouter(prefix="/communities", tags=["communities"])
 SessionDep = Annotated[Session, Depends(get_db)]
@@ -62,7 +64,6 @@ async def create_community(
         )
 
     # Get next order_index from system clock
-    from .posts import get_system_clock
     clock = get_system_clock(db)
 
     # Create the community
@@ -79,6 +80,32 @@ async def create_community(
     db.add(new_community)
     db.commit()
     db.refresh(new_community)
+
+    # Federate community creation (if bridge enabled)
+    if settings.bridge_enabled:
+
+        bridge_client = get_bridge_client()
+
+        idempotency_key = f"community-create-{new_community.id}-{new_community.order_index}"
+
+        try:
+            serialized_envelope = await bridge_client.create_community_envelope(
+                community_id=new_community.id,
+                internal_slug=new_community.internal_slug,
+                display_name=new_community.display_name,
+                creation_day=new_community.order_index, # Assuming order_index is creation_day
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(
+                db,
+                serialized_envelope,
+                idempotency_key=idempotency_key,
+            )
+        except BridgeDisabledError:
+            pass # Bridge is disabled, do nothing
+        except BridgeError as exc:
+            print(f"Error federating community creation to Bridge: {exc}")
+            # Log error, but don't block local community creation
 
     return new_community
 
@@ -117,6 +144,34 @@ async def join_community(
     db.add(membership)
     db.commit()
 
+    # Federate community join (if bridge enabled)
+    if settings.bridge_enabled:
+
+        bridge_client = get_bridge_client()
+        clock = get_system_clock(db) # Get system clock for day_seq
+
+        idempotency_key = (
+            f"community-join-{community_id}-{current_user.user_id.hex()}-{clock.day_seq}"
+        )
+
+        try:
+            serialized_envelope = await bridge_client.create_community_join_envelope(
+                community_id=community_id,
+                user_id_hex=current_user.user_id.hex(),
+                day_seq=clock.day_seq,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(
+                db,
+                serialized_envelope,
+                idempotency_key=idempotency_key,
+            )
+        except BridgeDisabledError:
+            pass # Bridge is disabled, do nothing
+        except BridgeError as exc:
+            print(f"Error federating community join to Bridge: {exc}")
+            # Log error, but don't block local community join
+
     return {"status": "joined"}
 
 @router.delete(
@@ -146,6 +201,34 @@ async def leave_community(
     db.delete(membership)
     db.commit()
 
+    # Federate community leave (if bridge enabled)
+    if settings.bridge_enabled:
+
+        bridge_client = get_bridge_client()
+        clock = get_system_clock(db) # Get system clock for day_seq
+
+        idempotency_key = (
+            f"community-leave-{community_id}-{current_user.user_id.hex()}-{clock.day_seq}"
+        )
+
+        try:
+            serialized_envelope = await bridge_client.create_community_leave_envelope(
+                community_id=community_id,
+                user_id_hex=current_user.user_id.hex(),
+                day_seq=clock.day_seq,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(
+                db,
+                serialized_envelope,
+                idempotency_key=idempotency_key,
+            )
+        except BridgeDisabledError:
+            pass # Bridge is disabled, do nothing
+        except BridgeError as exc:
+            print(f"Error federating community leave to Bridge: {exc}")
+            # Log error, but don't block local community leave
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.get("/{community_id}/posts", response_model=list[PostResponse])
@@ -156,9 +239,6 @@ async def get_community_posts(
     before: int | None = None,
 ) -> list[Post]:
     """Get posts from a specific community."""
-    from sqlalchemy import desc
-
-    from chorus_stage.models import Post
 
     query = db.query(Post).filter(
         Post.community_id == community_id,

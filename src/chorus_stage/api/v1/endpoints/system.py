@@ -2,21 +2,36 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import literal_column
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
 from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
-from chorus_stage.models import Community, ModerationCase, ModerationVote, Post, SystemClock
+from chorus_stage.models import (
+    Community,
+    DirectMessage,
+    ModerationCase,
+    ModerationVote,
+    Post,
+    PostVote,
+    SystemClock,
+    User,
+)
+from chorus_stage.services.bridge import bridge_enabled, get_bridge_client
 from chorus_stage.services.pow import PowService, get_pow_service
+
+# Moderation case states
+MODERATION_STATE_CLOSED = 2
 
 router = APIRouter(prefix="/system", tags=["system", "transparency"])
 
 
 def get_pow_service_dep() -> PowService:
+    """Get PowService dependency for dependency injection."""
     return get_pow_service()
 
 
@@ -56,6 +71,11 @@ async def get_public_config(pow_service: PowServiceDep) -> dict[str, object]:
                 "trigger_seconds": settings.moderation_trigger_cooldown_seconds,
             },
         },
+        "bridge": {
+            "enabled": bridge_enabled(),
+            "instance_id": settings.bridge_instance_id,
+            "base_url": settings.bridge_base_url,
+        },
     }
 
 
@@ -74,50 +94,45 @@ async def get_clock(db: SessionDep) -> dict[str, int]:
 @router.get("/moderation-stats")
 async def get_moderation_stats(db: SessionDep) -> dict[str, object]:
     """Return aggregated moderation statistics without revealing identities."""
-    total_cases = db.query(func.count()).select_from(ModerationCase).scalar() or 0
+    total_cases = db.query(ModerationCase).count() or 0
     open_cases = (
-        db.query(func.count())
-        .select_from(ModerationCase)
+        db.query(ModerationCase)
         .filter(ModerationCase.state == 0)
-        .scalar()
+        .count()
         or 0
     )
     cleared_cases = (
-        db.query(func.count())
-        .select_from(ModerationCase)
+        db.query(ModerationCase)
         .filter(ModerationCase.state == 1)
-        .scalar()
+        .count()
         or 0
     )
     hidden_cases = (
-        db.query(func.count())
-        .select_from(ModerationCase)
-        .filter(ModerationCase.state == 2)
-        .scalar()
+        db.query(ModerationCase)
+        .filter(ModerationCase.state == MODERATION_STATE_CLOSED)
+        .count()
         or 0
     )
 
     harmful_votes = (
-        db.query(func.count())
-        .select_from(ModerationVote)
+        db.query(ModerationVote)
         .filter(ModerationVote.choice == 1)
-        .scalar()
+        .count()
         or 0
     )
     not_harmful_votes = (
-        db.query(func.count())
-        .select_from(ModerationVote)
+        db.query(ModerationVote)
         .filter(ModerationVote.choice == 0)
-        .scalar()
+        .count()
         or 0
     )
 
     # Per-community case counts
-    community_rows = (
+    community_rows: list[Row[Any]] = (
         db.query(
             Community.id,
             Community.internal_slug,
-            func.count(ModerationCase.post_id),
+            literal_column('COUNT(*)'),
         )
         .join(ModerationCase, ModerationCase.community_id == Community.id, isouter=True)
         .group_by(Community.id, Community.internal_slug)
@@ -168,11 +183,11 @@ async def get_moderation_stats(db: SessionDep) -> dict[str, object]:
 @router.get("/activity-stats")
 async def get_activity_stats(db: SessionDep) -> dict[str, int]:
     """Network-wide activity counters (anonymized)."""
-    users = db.query(func.count()).select_from(User).scalar() or 0
-    posts = db.query(func.count()).select_from(Post).scalar() or 0
-    votes = db.query(func.count()).select_from(PostVote).scalar() or 0
-    messages = db.query(func.count()).select_from(DirectMessage).scalar() or 0
-    communities = db.query(func.count()).select_from(Community).scalar() or 0
+    users = db.query(User).count() or 0
+    posts = db.query(Post).count() or 0
+    votes = db.query(PostVote).count() or 0
+    messages = db.query(DirectMessage).count() or 0
+    communities = db.query(Community).count() or 0
     return {
         "users": int(users),
         "communities": int(communities),
@@ -180,4 +195,30 @@ async def get_activity_stats(db: SessionDep) -> dict[str, int]:
         "votes": int(votes),
         "messages": int(messages),
     }
-from chorus_stage.models import User, PostVote, DirectMessage
+
+
+@router.get("/bridge/health")
+async def get_bridge_health() -> dict[str, object]:
+    """Get Bridge health status and circuit breaker information."""
+    if not bridge_enabled():
+        return {
+            "status": "disabled",
+            "enabled": False,
+            "error": "Bridge integration is disabled"
+        }
+
+    bridge_client = get_bridge_client()
+    return await bridge_client.health_check()
+
+
+@router.get("/bridge/metrics")
+async def get_bridge_metrics() -> dict[str, object]:
+    """Get Bridge operation metrics and performance data."""
+    if not bridge_enabled():
+        return {
+            "enabled": False,
+            "error": "Bridge integration is disabled"
+        }
+
+    bridge_client = get_bridge_client()
+    return bridge_client.get_metrics()

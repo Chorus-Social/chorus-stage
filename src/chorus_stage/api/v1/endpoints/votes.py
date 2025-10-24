@@ -7,12 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
+from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
 from chorus_stage.models import Post, PostVote, User
 from chorus_stage.schemas.vote import VoteCreate
 from chorus_stage.services.pow import PowService, get_pow_service
 from chorus_stage.services.replay import ReplayProtectionService, get_replay_service
-from chorus_stage.core.settings import settings
 
 from .posts import get_current_user
 
@@ -42,7 +42,7 @@ def _get_post_or_404(db: Session, post_id: int) -> Post:
     return post
 
 
-def _validate_pow_and_replay(
+def _check_pow_and_replay(
     *,
     pow_service: PowService,
     replay_service: ReplayProtectionService,
@@ -63,6 +63,16 @@ def _validate_pow_and_replay(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Vote has already been processed",
         )
+
+
+def _register_pow_and_replay(
+    *,
+    pow_service: PowService,
+    replay_service: ReplayProtectionService,
+    current_user: User,
+    vote_data: VoteCreate,
+) -> None:
+    pubkey_hex = current_user.pubkey.hex()
 
     pow_service.register_pow("vote", pubkey_hex, vote_data.pow_nonce)
     replay_service.register_replay(pubkey_hex, vote_data.client_nonce)
@@ -132,6 +142,13 @@ async def cast_vote(
     """Cast a vote on a post with proof of work verification."""
     post = _get_post_or_404(db, vote_data.post_id)
 
+    _check_pow_and_replay(
+        pow_service=pow_service,
+        replay_service=replay_service,
+        current_user=current_user,
+        vote_data=vote_data,
+    )
+
     # If casting a harmful vote, enforce per-author and per-post cooldowns
     if vote_data.direction == -1:
         voter_pubkey_hex = current_user.pubkey.hex()
@@ -142,7 +159,7 @@ async def cast_vote(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Harmful vote cool-down active; please wait before voting again",
             )
-    _validate_pow_and_replay(
+    _register_pow_and_replay(
         pow_service=pow_service,
         replay_service=replay_service,
         current_user=current_user,
@@ -178,6 +195,32 @@ async def cast_vote(
             )
 
     db.commit()
+
+    # Federate vote event if bridge is enabled
+    if settings.bridge_enabled:
+        from chorus_stage.services.bridge import BridgeDisabledError, get_bridge_client
+
+        from .posts import get_system_clock
+
+        bridge_client = get_bridge_client()
+        clock = get_system_clock(db)
+
+        idempotency_key = f"vote-{post.id}-{current_user.user_id.hex()}-{clock.day_seq}"
+
+        try:
+            serialized_envelope = await bridge_client.create_vote_envelope(
+                post_id=post.id,
+                voter_user_id_bytes=current_user.user_id,
+                direction=vote_data.direction,
+                creation_day=clock.day_seq,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(db, serialized_envelope, idempotency_key)
+        except BridgeDisabledError:
+            print("Bridge is disabled, vote not federated.")
+        except Exception as e:
+            print(f"Error federating vote: {e}")
+
     return {"status": "success"}
 
 

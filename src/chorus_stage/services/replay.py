@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
-from collections import defaultdict
 import time
+from collections import defaultdict
 from threading import Lock
 from typing import Any, Final, cast
 
@@ -181,13 +181,17 @@ class ReplayProtectionService:
     def is_harmful_vote_cooldown_author(self, voter_pubkey_hex: str, author_user_hex: str) -> bool:
         return self._is_cooldown(f"hcool:a:{voter_pubkey_hex}:{author_user_hex}")
 
-    def set_harmful_vote_cooldown_author(self, voter_pubkey_hex: str, author_user_hex: str, ttl_seconds: int) -> None:
+    def set_harmful_vote_cooldown_author(
+        self, voter_pubkey_hex: str, author_user_hex: str, ttl_seconds: int
+    ) -> None:
         self._set_cooldown(f"hcool:a:{voter_pubkey_hex}:{author_user_hex}", ttl_seconds)
 
     def is_harmful_vote_cooldown_post(self, voter_pubkey_hex: str, post_id: int) -> bool:
         return self._is_cooldown(f"hcool:p:{voter_pubkey_hex}:{post_id}")
 
-    def set_harmful_vote_cooldown_post(self, voter_pubkey_hex: str, post_id: int, ttl_seconds: int) -> None:
+    def set_harmful_vote_cooldown_post(
+        self, voter_pubkey_hex: str, post_id: int, ttl_seconds: int
+    ) -> None:
         self._set_cooldown(f"hcool:p:{voter_pubkey_hex}:{post_id}", ttl_seconds)
 
     def is_moderation_trigger_cooldown(self, user_hex: str) -> bool:
