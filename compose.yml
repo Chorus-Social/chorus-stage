@@ -1,6 +1,6 @@
 services:
-  chorus_live:
-    container_name: chorus_live
+  chorus_stage_live:
+    container_name: chorus_stage_live
     image: postgres
     restart: unless-stopped
     ports:
@@ -24,12 +24,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_DB: ${POSTGRES_DB}
 
-  chorus_testing:
-    container_name: chorus_testing
+  chorus_stage_testing:
+    container_name: chorus_stage_testing
     image: postgres
     restart: unless-stopped
     ports:
-      - 5433:5432
+      - 5432:5432
     volumes:
       - chorus_testing_data:/var/lib/postgresql/data
     networks:
@@ -54,9 +54,6 @@ services:
   adminer:
     image: adminer
     container_name: adminer
-    depends_on:
-      - chorus_live
-      - chorus_testing
     restart: always
     ports:
       - 5532:8080
