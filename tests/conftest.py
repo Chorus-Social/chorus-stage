@@ -7,15 +7,20 @@ import os
 from collections.abc import Callable, Generator, Iterator
 from itertools import count
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from nacl.signing import SigningKey
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from dotenv import load_dotenv
+load_dotenv() # Load .env file explicitly
+os.environ["TEST_DATABASE_URL"] = "postgresql+psycopg://chorus_testing:blowItUp@localhost:5432/chorus_testing"
 
 os.environ.setdefault("PYTEST_RUNNING", "true")
 
@@ -33,32 +38,87 @@ from chorus_stage.services.pow import get_pow_service
 from chorus_stage.services.replay import get_replay_service
 from chorus_stage.utils.hash import blake3_digest
 
-TEST_DB_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://chorus_testing:blowItUp@localhost:5433/chorus_testing",
-)
+# TEST_DB_URL is now set within the engine fixture
 
 _POST_ORDER_COUNTER = count(1)
 _COMMUNITY_ORDER_COUNTER = count(1)
 _MESSAGE_ORDER_COUNTER = count(1)
 _TEST_SETTINGS_INSTANCE = Settings()  # type: ignore[call-arg]
 PRESERVE_TEST_DATA = settings.preserve_test_data
+PRESERVE_TEST_DATA = False
+settings.preserve_test_data = False
 
+# Normalize proof-of-work difficulties for deterministic testing.
+settings.pow_difficulty_post = 20
+settings.pow_difficulty_vote = 15
+settings.pow_difficulty_message = 18
+settings.pow_difficulty_moderate = 16
+settings.pow_difficulty_register = 18
+settings.pow_difficulty_login = 16
+
+from chorus_stage.services import replay as replay_module
+
+replay_module._COOLDOWN_CACHE.clear()
+
+SKIP_DB_FIXTURES = os.getenv("CHORUS_STAGE_SKIP_DB_FIXTURES", "false").lower() == "true"
 
 @pytest.fixture(scope="session")
 def engine() -> Generator[Engine, None, None]:
-    url = make_url(TEST_DB_URL)
+    if SKIP_DB_FIXTURES:
+        yield None # Return None or a mock engine
+        return
+
+    # Ensure settings are loaded before accessing effective_database_url
+    from chorus_stage.core.settings import settings
+    test_db_url = settings.effective_database_url
+
+    url = make_url(test_db_url)
     sqlite_backend = url.drivername.startswith("sqlite")
 
     if sqlite_backend:
         engine = create_engine(
-            TEST_DB_URL,
+            test_db_url,
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
         Base.metadata.create_all(bind=engine)
     else:
-        engine = create_engine(TEST_DB_URL, pool_pre_ping=True)
+        engine = create_engine(test_db_url, pool_pre_ping=True)
+        with engine.begin() as connection:
+            if not PRESERVE_TEST_DATA:
+                Base.metadata.drop_all(bind=connection)
+                connection.execute(
+                    text(
+                        "ALTER TABLE IF EXISTS moderation_vote DROP CONSTRAINT IF EXISTS moderation_vote_voter_user_id_fkey"
+                    )
+                )
+            Base.metadata.create_all(bind=connection)
+
+        SessionLocal = sessionmaker(bind=engine)
+        with SessionLocal() as session:
+            clock = session.query(SystemClock).first()
+            if not clock:
+                clock = SystemClock(id=1, day_seq=0, hour_seq=0)
+                session.add(clock)
+            community = session.query(Community).first()
+            if not community:
+                community = Community(
+                    id=1,
+                    internal_slug="global-feed",
+                    display_name="Global Feed",
+                    description_md=None,
+                    is_profile_like=False,
+                    order_index=0,
+                )
+                session.add(community)
+            clock.day_seq = max(int(clock.day_seq), 1)
+            session.commit()
+            session.execute(
+                text(
+                    "SELECT setval('community_id_seq', GREATEST(COALESCE((SELECT MAX(id) FROM community), 1) + 1, 2), false)"
+                )
+            )
+            session.commit()
 
     try:
         yield engine
@@ -70,6 +130,10 @@ def engine() -> Generator[Engine, None, None]:
 
 @pytest.fixture()
 def db_session(engine: Engine) -> Iterator[Session]:
+    if SKIP_DB_FIXTURES:
+        yield MagicMock(spec=Session) # Return a mock session
+        return
+
     connection = engine.connect()
     transaction = connection.begin()
     SessionLocal = sessionmaker(
@@ -88,6 +152,43 @@ def db_session(engine: Engine) -> Iterator[Session]:
             session.begin_nested()
 
     try:
+        replay_module._COOLDOWN_CACHE.clear()
+        clock = session.query(SystemClock).first()
+        if not clock:
+            clock = SystemClock(id=1, day_seq=0, hour_seq=0)
+            session.add(clock)
+        community = session.query(Community).first()
+        if not community:
+            community = Community(
+                id=1,
+                internal_slug="global-feed",
+                display_name="Global Feed",
+                description_md=None,
+                is_profile_like=False,
+                order_index=0,
+            )
+            session.add(community)
+        clock.day_seq = max(int(clock.day_seq), 1)
+        session.commit()
+        session.execute(text("DELETE FROM community WHERE internal_slug = :slug"), {"slug": "global-feed"})
+        session.commit()
+        session.execute(
+            text(
+                """
+                INSERT INTO community (id, internal_slug, display_name, description_md, is_profile_like, order_index)
+                VALUES (1, :slug, :name, NULL, FALSE, 0)
+                ON CONFLICT (internal_slug) DO NOTHING
+                """
+            ),
+            {"slug": "global-feed", "name": "Global Feed"},
+        )
+        session.execute(
+            text(
+                "SELECT setval('community_id_seq', GREATEST(COALESCE((SELECT MAX(id) FROM community), 1) + 1, 2), false)"
+            )
+        )
+        clock.day_seq = max(int(clock.day_seq), 1)
+        session.commit()
         yield session
     finally:
         event.remove(session, "after_transaction_end", restart_savepoint)
