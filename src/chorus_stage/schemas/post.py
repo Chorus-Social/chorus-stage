@@ -37,6 +37,8 @@ class PostResponse(BaseModel):
     upvotes: int
     downvotes: int
     deleted: bool
+    federation_post_id: str | None = None
+    federation_origin: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -58,6 +60,10 @@ class PostResponse(BaseModel):
         content_hash = data.get("content_hash")
         if isinstance(content_hash, bytes | bytearray):
             data["content_hash"] = content_hash.hex()
+
+        federation_post_id = data.get("federation_post_id")
+        if isinstance(federation_post_id, bytes | bytearray):
+            data["federation_post_id"] = bytes(federation_post_id).hex()
 
         return data
 

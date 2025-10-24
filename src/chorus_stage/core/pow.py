@@ -6,86 +6,43 @@ Contracts are designed LeetCode-style for incremental implementation.
 """
 from __future__ import annotations
 
-import hashlib
-import os
-import time
-from dataclasses import dataclass
 from typing import Literal
 
-Action = Literal["post", "vote", "read"]
+import blake3
+
+Action = Literal["post", "vote", "read", "register"]
 DEFAULT_TARGET_BITS = 16
-SHA256_DIGEST_BYTES = 32
+BLAKE3_DIGEST_BYTES = 32
 MAX_TARGET_BITS = 256
 NONCE_SIZE_BYTES = 8
 MILLISECONDS_PER_SECOND = 1000
 
-@dataclass(frozen=True)
-class PowChallenge:
-    """A PoW challenge envelope.
-
-    Attributes
-    ----------
-    action : Action
-        The action being protected (post, vote, read).
-    salt : bytes
-        Server-provided random salt.
-    target_bits : int
-        Number of leading zero bits required in the hash.
-    issued_at_ms : int
-        Milliseconds since epoch when the challenge was issued.
-    """
-    action: Action
-    salt: bytes
-    target_bits: int
-    issued_at_ms: int
-
-    @property
-    def salt_hex(self) -> str:
-        """Return the salt encoded as hexadecimal."""
-        return self.salt.hex()
-
-def generate_challenge(action: Action, target_bits: int | None = None) -> PowChallenge:
-    """Generate a new proof-of-work challenge for an action.
-
-    Args:
-        action: The action the challenge will protect.
-        target_bits: Optional override for the default difficulty.
-
-    Returns:
-        Challenge parameters that can be sent to the client.
-
-    Notes:
-        Salts must remain unguessable and this helper stays stateless; replay tracking
-        can be implemented in higher layers.
-    """
-    salt = os.urandom(16)
-    tb = target_bits if target_bits is not None else DEFAULT_TARGET_BITS
-    return PowChallenge(
-        action=action,
-        salt=salt,
-        target_bits=tb,
-        issued_at_ms=int(time.time() * MILLISECONDS_PER_SECOND),
-    )
-
-def validate_solution(challenge: PowChallenge, payload_digest: bytes, nonce: int) -> bool:
+def validate_solution(
+    salt_bytes: bytes, payload_digest: bytes, nonce: int, target_bits: int
+) -> bool:
     """Validate a proposed proof-of-work solution.
 
     Args:
-        challenge: Previously issued challenge instance.
-        payload_digest: SHA-256 digest of the canonical request payload (32 bytes).
+        salt_bytes: Server-provided random salt or deterministic challenge identifier.
+        payload_digest: BLAKE3 digest of the canonical request payload (32 bytes).
         nonce: Unsigned integer chosen by the client.
+        target_bits: Number of leading zero bits required in the hash.
 
     Returns:
-        True if `sha256(salt | payload_digest | nonce_le64)` has at least
-        `challenge.target_bits` leading zero bits; False otherwise.
+        True if `blake3(salt_bytes | payload_digest | nonce_le64)` has at least
+        `target_bits` leading zero bits; False otherwise.
     """
-    if len(payload_digest) != SHA256_DIGEST_BYTES:
+    if len(payload_digest) != BLAKE3_DIGEST_BYTES:
         return False
-    if not (0 <= challenge.target_bits <= MAX_TARGET_BITS):
+    if not (0 <= target_bits <= MAX_TARGET_BITS):
         return False
 
     nonce_bytes = nonce.to_bytes(NONCE_SIZE_BYTES, "little", signed=False)
-    h = hashlib.sha256(challenge.salt + payload_digest + nonce_bytes).digest()
+    input_bytes = bytearray()
+    input_bytes.extend(salt_bytes)
+    input_bytes.extend(payload_digest)
+    input_bytes.extend(nonce_bytes)
+    h = blake3.blake3(bytes(input_bytes)).digest()
 
     # Count leading zero bits
     zeros = 0
@@ -98,6 +55,6 @@ def validate_solution(challenge: PowChallenge, payload_digest: bytes, nonce: int
             if (byte >> bit) & 1 == 0:
                 zeros += 1
             else:
-                break
-        break
-    return zeros >= challenge.target_bits
+                break # Found first non-zero bit
+        break # Exit outer loop after processing the first non-zero byte
+    return zeros >= target_bits

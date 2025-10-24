@@ -146,6 +146,102 @@ def test_get_moderation_history(client, test_user, auth_token, test_post, db_ses
     assert isinstance(data, list)
 
 
+def test_case_summary_and_list(client, auth_token, other_auth_token) -> None:
+    """Case summary endpoints provide anonymized aggregates."""
+    import hashlib
+
+    content = "Summary Target"
+    h = hashlib.sha256(content.encode()).hexdigest()
+    r = client.post(
+        "/api/v1/posts/",
+        json={"content_md": content, "pow_nonce": "cs1", "pow_difficulty": 20, "content_hash": h},
+        headers=other_auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    pid = r.json()["id"]
+
+    # Cast a vote to ensure a case exists
+    r = client.post(
+        "/api/v1/moderation/vote",
+        params={"post_id": pid, "is_harmful": True},
+        headers=auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+
+    r = client.get(f"/api/v1/moderation/case/{pid}/summary")
+    assert r.status_code == status.HTTP_200_OK
+    summary = r.json()
+    assert summary["post_id"] == pid
+    assert "harmful_votes" in summary and "not_harmful_votes" in summary
+
+    r = client.get("/api/v1/moderation/cases")
+    assert r.status_code == status.HTTP_200_OK
+    cases = r.json()
+    assert isinstance(cases, list)
+    assert any(c["post_id"] == pid for c in cases)
+
+
+def test_community_stats_cases_ledger(client, auth_token, other_auth_token, community) -> None:
+    """Community endpoints surface moderation transparency by slug."""
+    import hashlib
+
+    # Create a post in the test community
+    content = "Community Target"
+    h = hashlib.sha256(content.encode()).hexdigest()
+    r = client.post(
+        "/api/v1/posts/",
+        json={
+            "content_md": content,
+            "pow_nonce": "cc1",
+            "pow_difficulty": 20,
+            "content_hash": h,
+            "community_internal_slug": community.internal_slug,
+        },
+        headers=other_auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    pid = r.json()["id"]
+
+    # Trigger moderation and vote harmful
+    r = client.post(
+        "/api/v1/moderation/trigger",
+        params={"post_id": pid},
+        headers=auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+
+    r = client.post(
+        "/api/v1/moderation/vote",
+        params={"post_id": pid, "is_harmful": True},
+        headers=auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+
+    # Community stats
+    r = client.get(f"/api/v1/moderation/community/{community.internal_slug}/stats")
+    assert r.status_code == status.HTTP_200_OK
+    stats = r.json()
+    assert stats["community_id"] == community.id
+    assert "cases" in stats and "votes" in stats
+
+    # Community cases
+    r = client.get(f"/api/v1/moderation/community/{community.internal_slug}/cases")
+    assert r.status_code == status.HTTP_200_OK
+    cases = r.json()
+    assert any(c["post_id"] == pid for c in cases)
+
+    # Community ledger
+    r = client.get(f"/api/v1/moderation/community/{community.internal_slug}/ledger")
+    assert r.status_code == status.HTTP_200_OK
+    ledger = r.json()
+    assert any(e["type"] in ("trigger", "case_opened") for e in ledger)
+
+    # Global ledger should also include entries
+    r = client.get("/api/v1/moderation/ledger")
+    assert r.status_code == status.HTTP_200_OK
+    assert isinstance(r.json(), list)
+
+
 def test_moderation_flow_with_multiple_votes(
     client,
     test_user,
@@ -199,3 +295,51 @@ def test_moderation_flow_with_multiple_votes(
     assert response.status_code == status.HTTP_200_OK
     queue = response.json()
     assert any(p["id"] == test_post.id for p in queue)
+
+
+def test_moderation_trigger_cooldown(
+    client, test_user, auth_token, other_auth_token
+) -> None:
+    """Global moderation trigger cool-down limits rapid triggers."""
+    # Ensure tokens
+    # Create two posts by other user
+    import hashlib
+
+    def mk(content: str) -> tuple[str, str]:
+        return content, hashlib.sha256(content.encode()).hexdigest()
+
+    c1, h1 = mk("Moderation target 1")
+    r = client.post(
+        "/api/v1/posts/",
+        json={"content_md": c1, "pow_nonce": "m1", "pow_difficulty": 20, "content_hash": h1},
+        headers=other_auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    p1 = r.json()["id"]
+
+    c2, h2 = mk("Moderation target 2")
+    r = client.post(
+        "/api/v1/posts/",
+        json={"content_md": c2, "pow_nonce": "m2", "pow_difficulty": 20, "content_hash": h2},
+        headers=other_auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    p2 = r.json()["id"]
+
+    # Give test user tokens via dedicated endpoint path isn't available; rely on default fixture state
+    # First trigger ok
+    r = client.post(
+        "/api/v1/moderation/trigger",
+        params={"post_id": p1},
+        headers=auth_token,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+
+    # Second immediate trigger hits cooldown
+    r = client.post(
+        "/api/v1/moderation/trigger",
+        params={"post_id": p2},
+        headers=auth_token,
+    )
+    assert r.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+    assert "moderation triggers" in r.json()["detail"]

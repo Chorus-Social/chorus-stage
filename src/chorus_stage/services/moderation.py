@@ -19,13 +19,14 @@ from chorus_stage.models.moderation import (
     MODERATION_STATE_HIDDEN,
     MODERATION_STATE_OPEN,
 )
+from chorus_stage.services.bridge import get_bridge_client
 
 
 class ModerationService:
     """Service handling moderation logic and state transitions."""
 
     @staticmethod
-    def update_moderation_state(post_id: int, db: Session) -> None:
+    async def update_moderation_state(post_id: int, db: Session) -> None:
         """Update the moderation state based on community votes.
 
         Args:
@@ -92,7 +93,19 @@ class ModerationService:
                 if new_state == MODERATION_STATE_HIDDEN:
                     case.closed_order_index = post.order_index
 
-        db.commit()
+            db.commit()
+
+            # Anchor moderation event to Bridge
+            bridge_client = get_bridge_client()
+            if bridge_client.enabled:
+                event_data = {
+                    "post_id": post_id,
+                    "new_state": new_state,
+                    "harmful_votes": harmful_votes,
+                    "not_harmful_votes": not_harmful_votes,
+                    # Add other relevant hashes/metadata as per CFP
+                }
+                await bridge_client.anchor_moderation_event(event_data)
 
     @staticmethod
     def can_trigger_moderation(user_id: bytes, post_id: int, db: Session) -> bool:

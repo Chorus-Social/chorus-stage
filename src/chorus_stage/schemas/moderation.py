@@ -16,7 +16,7 @@ class ModerationCaseResponse(BaseModel):
     """Schema for moderation case information returned by the API."""
 
     post_id: int
-    community_id: int
+    community_id: int | None
     state: int
     opened_order_index: int
     closed_order_index: int | None

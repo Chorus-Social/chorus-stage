@@ -83,6 +83,14 @@ fmt:
 test:
 	$(POETRY) run pytest -q --asyncio-mode=auto --maxfail=1
 
+.PHONY: test-unit test-services
+test-unit:
+	# Run fast, unit-only tests (no DB/Redis required)
+	$(POETRY) run pytest -q tests/v1/test_services.py -k "pow_leases or replay_pow_nonce_tracking_in_memory or auth_challenge_binding_negative" --maxfail=1
+
+test-services:
+	$(POETRY) run pytest -q tests/v1/test_services.py --maxfail=1
+
 clean:
 	@find . -name "__pycache__" -type d -prune -exec rm -rf {} + || true
 	@rm -rf .pytest_cache .ruff_cache dist build *.egg-info || true

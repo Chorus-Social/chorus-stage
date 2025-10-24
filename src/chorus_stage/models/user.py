@@ -20,6 +20,7 @@ class User(Base):
     pubkey: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     accent_color: Mapped[str | None] = mapped_column(Text, nullable=True)
+    creation_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     state: Mapped[UserState] = relationship(
         "UserState",

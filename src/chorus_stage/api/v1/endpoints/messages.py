@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
 from chorus_stage.models import DirectMessage, User
 from chorus_stage.schemas.direct_message import DirectMessageCreate
@@ -129,6 +130,37 @@ async def send_message(
     db.add(new_message)
     db.commit()
     db.refresh(new_message)
+
+    # Federate direct message sent event (if bridge enabled)
+    if settings.bridge_enabled:
+        from chorus_stage.services.bridge import BridgeDisabledError, BridgeError, get_bridge_client
+        # Removed: from chorus_stage.proto import federation_pb2
+        # Removed: import json
+        # Removed: import time (time is used internally by BridgeClient)
+
+        bridge_client = get_bridge_client()
+        clock = get_system_clock(db) # Get system clock for day_seq
+
+        idempotency_key = f"dm-sent-{new_message.id}-{current_user.user_id.hex()}-{clock.day_seq}"
+
+        try:
+            serialized_envelope = await bridge_client.create_direct_message_sent_envelope(
+                message_id=new_message.id,
+                sender_user_id_hex=current_user.user_id.hex(),
+                recipient_user_id_hex=recipient.user_id.hex(),
+                day_seq=clock.day_seq,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(
+                db,
+                serialized_envelope,
+                idempotency_key=idempotency_key,
+            )
+        except BridgeDisabledError:
+            pass # Bridge is disabled, do nothing
+        except BridgeError as exc:
+            print(f"Error federating direct message sent event to Bridge: {exc}")
+            # Log error, but don't block local message sending
 
     return {"status": "message_sent", "message_id": new_message.id}
 

@@ -7,6 +7,8 @@ from .endpoints import (
     messages_router,
     moderation_router,
     posts_router,
+    system_router,
+    users_router,
     votes_router,
 )
 
@@ -16,5 +18,7 @@ __all__ = [
     "votes_router",
     "communities_router",
     "messages_router",
-    "moderation_router"
+    "moderation_router",
+    "system_router",
+    "users_router",
 ]

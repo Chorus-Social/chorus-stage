@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import hashlib
+import contextlib
 import os
 import time
 from typing import Final
 
+import blake3
+
+from chorus_stage.core import pow as core_pow
 from chorus_stage.core.settings import settings
 from chorus_stage.services.replay import ReplayProtectionService, get_replay_service
 
 _DEFAULT_DIFFICULTY: Final[int] = settings.pow_difficulty_post
+CHALLENGE_WINDOW_SECONDS: Final[int] = 300
 _TEST_MODE: Final[bool] = os.getenv("PYTEST_RUNNING", "").lower() == "true"
 
 
@@ -31,9 +35,9 @@ class PowService:
 
     def get_challenge(self, action: str, pubkey_hex: str) -> str:
         """Return a deterministic challenge for a user/action bucket."""
-        bucket = int(time.time() // 300)  # 5 minute window
+        bucket = int(time.time() // CHALLENGE_WINDOW_SECONDS)  # 5 minute window
         data = f"{action}:{pubkey_hex}:{bucket}".encode()
-        return hashlib.sha256(data).hexdigest()
+        return blake3.blake3(data).hexdigest()
 
     def verify_pow(
         self,
@@ -46,30 +50,30 @@ class PowService:
         if self._testing_mode:
             return True
 
-        challenge = target or self.get_challenge(action, pubkey_hex)
+        # Adaptive lease: if enabled and a lease credit exists, consume it and
+        # allow the operation without recomputing PoW.
+        if settings.pow_enable_leases:
+            try:
+                if self._replay_service.consume_pow_lease(pubkey_hex):
+                    return True
+            except Exception:
+                # Fallback to hard PoW path if lease storage is unavailable
+                pass
+
+        challenge_str = target or self.get_challenge(action, pubkey_hex)
         difficulty = self._difficulties.get(action, _DEFAULT_DIFFICULTY)
 
-        combined = f"{action}:{pubkey_hex}:{challenge}:{nonce}".encode()
-        result_hash = hashlib.sha256(combined).hexdigest()
+        salt_bytes = bytes.fromhex(challenge_str)
+        combined_payload = f"{action}:{pubkey_hex}:{challenge_str}".encode()
+        payload_digest = blake3.blake3(combined_payload).digest()
 
-        leading_zeros = 0
-        for char in result_hash:
-            if char == "0":
-                leading_zeros += 4
-                if leading_zeros >= difficulty:
-                    return True
-                continue
+        try:
+            nonce_int = int(nonce, 16)  # Assuming nonce is hex-encoded
+        except ValueError:
+            return False
 
-            hex_digit = int(char, 16)
-            for bit in range(3, -1, -1):
-                if (hex_digit >> bit) & 1:
-                    return leading_zeros >= difficulty
-                leading_zeros += 1
-                if leading_zeros >= difficulty:
-                    return True
-            break
-
-        return leading_zeros >= difficulty
+        result = core_pow.validate_solution(salt_bytes, payload_digest, nonce_int, difficulty)
+        return result
 
     def is_pow_replay(self, action: str, pubkey_hex: str, nonce: str) -> bool:
         """Return True if the supplied nonce was already registered."""
@@ -82,11 +86,24 @@ class PowService:
         if self._testing_mode:
             return
         self._replay_service.register_pow(action, pubkey_hex, nonce)
+        # Grant a small, short-lived lease after a successful PoW to smooth UX.
+        if settings.pow_enable_leases:
+            with contextlib.suppress(Exception):
+                self._replay_service.grant_pow_lease(
+                    pubkey_hex,
+                    actions=max(0, int(settings.pow_lease_actions)),
+                    ttl_seconds=max(0, int(settings.pow_lease_seconds)),
+                )
 
     @property
     def difficulties(self) -> dict[str, int]:
         """Expose difficulty configuration for testing purposes."""
         return dict(self._difficulties)
+
+    @property
+    def challenge_window_seconds(self) -> int:
+        """Return the PoW challenge window size in seconds."""
+        return int(CHALLENGE_WINDOW_SECONDS)
 
 
 def get_pow_service() -> PowService:
