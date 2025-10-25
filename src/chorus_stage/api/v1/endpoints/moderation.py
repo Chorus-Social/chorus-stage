@@ -6,8 +6,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import Integer, func
-from sqlalchemy.sql import functions
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import functions
 
 from chorus_stage.core.settings import settings
 from chorus_stage.db.session import get_db
@@ -451,7 +451,9 @@ def _collect_ledger_events(db: Session, community_id: int | None = None) -> list
                 "type": "case_closed",
                 "post_id": case.post_id,
                 "community_id": case.community_id,
-                "order_index": int(case.closed_order_index) if case.closed_order_index is not None else 0,
+                "order_index": (
+                    int(case.closed_order_index) if case.closed_order_index is not None else 0
+                ),
             }
         )
 

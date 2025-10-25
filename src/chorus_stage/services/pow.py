@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import time
 from typing import Final
@@ -45,6 +46,7 @@ class PowService:
         pubkey_hex: str,
         nonce: str,
         target: str | None = None,
+        hash_algorithm: str = "blake3",
     ) -> bool:
         """Return True if the nonce satisfies the difficulty requirements."""
         if self._testing_mode:
@@ -65,14 +67,21 @@ class PowService:
 
         salt_bytes = bytes.fromhex(challenge_str)
         combined_payload = f"{action}:{pubkey_hex}:{challenge_str}".encode()
-        payload_digest = blake3.blake3(combined_payload).digest()
+
+        # Use the specified hash algorithm for payload digest
+        if hash_algorithm == "sha256":
+            payload_digest = hashlib.sha256(combined_payload).digest()
+        else:  # Default to blake3
+            payload_digest = blake3.blake3(combined_payload).digest()
 
         try:
             nonce_int = int(nonce, 16)  # Assuming nonce is hex-encoded
         except ValueError:
             return False
 
-        result = core_pow.validate_solution(salt_bytes, payload_digest, nonce_int, difficulty)
+        result = core_pow.validate_solution(
+            salt_bytes, payload_digest, nonce_int, difficulty, hash_algorithm
+        )
         return result
 
     def is_pow_replay(self, action: str, pubkey_hex: str, nonce: str) -> bool:

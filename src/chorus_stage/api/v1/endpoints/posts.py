@@ -20,9 +20,15 @@ from chorus_stage.models.moderation import (
     MODERATION_STATE_HIDDEN,
     MODERATION_STATE_OPEN,
 )
+
 # from chorus_stage.proto import federation_pb2  # Imported conditionally to avoid protobuf issues
 from chorus_stage.schemas.post import PostCreate, PostResponse
-from chorus_stage.services.bridge import BridgeDisabledError, BridgeError, BridgePostSubmission, get_bridge_client
+from chorus_stage.services.bridge import (
+    BridgeDisabledError,
+    BridgeError,
+    BridgePostSubmission,
+    get_bridge_client,
+)
 from chorus_stage.services.pow import PowService, get_pow_service
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -115,7 +121,20 @@ async def list_posts(
     before: int | None = Query(None, description="Return posts before this order_index"),
     community_slug: str | None = Query(None, description="Filter by community slug"),
 ) -> list[Post]:
-    """List posts in deterministic order with optional filters."""
+    """List posts in deterministic order with optional filters.
+
+    Args:
+        db: Database session
+        limit: Maximum number of posts to return (max 100)
+        before: Return posts before this order_index for pagination
+        community_slug: Filter posts by community internal slug
+
+    Returns:
+        List of Post objects in descending order by order_index
+
+    Raises:
+        HTTPException: If community not found when filtering by slug
+    """
     query = db.query(Post).filter(
         Post.deleted.is_(False),
         Post.moderation_state != MODERATION_STATE_HIDDEN,
@@ -147,7 +166,18 @@ async def get_post(
     post_id: int,
     db: SessionDep,
 ) -> Post:
-    """Get a specific post by ID."""
+    """Get a specific post by ID.
+
+    Args:
+        post_id: ID of the post to retrieve
+        db: Database session
+
+    Returns:
+        Post object
+
+    Raises:
+        HTTPException: If post not found or deleted
+    """
     post = db.query(Post).filter(Post.id == post_id, Post.deleted.is_(False)).first()
 
     if not post:
@@ -165,7 +195,17 @@ async def get_post_children(
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
 ) -> list[Post]:
-    """Get replies to a post in deterministic order."""
+    """Get replies to a post in deterministic order.
+
+    Args:
+        post_id: ID of the parent post
+        db: Database session
+        limit: Maximum number of replies to return (max 100)
+        before: Return replies before this order_index for pagination
+
+    Returns:
+        List of Post objects that are replies to the specified post
+    """
     query = db.query(Post).filter(
         Post.parent_post_id == post_id,
         Post.deleted.is_(False),
@@ -188,7 +228,21 @@ async def create_post(
     db: SessionDep,
     pow_service: PowServiceDep,
 ) -> Post:
-    """Create a new post with proof of work verification."""
+    """Create a new post with proof of work verification.
+
+    Args:
+        post_data: Post creation data including content, PoW, and optional parent/community
+        current_user: Authenticated user creating the post
+        db: Database session
+        pow_service: Proof-of-work service for verification
+
+    Returns:
+        Created Post object
+
+    Raises:
+        HTTPException: If PoW insufficient, replay detected, content hash mismatch,
+                      parent post not found, or community not found
+    """
     author_pubkey_hex = current_user.pubkey.hex()
     expected_difficulty = pow_service.difficulties.get(
         "post",
@@ -210,6 +264,7 @@ async def create_post(
         "post",
         author_pubkey_hex,
         post_data.pow_nonce,
+        hash_algorithm=post_data.pow_hash_algorithm,
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -337,13 +392,13 @@ async def create_post(
             # Create PostAnnouncement envelope
             # Import protobuf module conditionally
             from chorus_stage.proto import federation_pb2
-            
+
             # Use getattr to safely access protobuf classes
             try:
                 # Get the protobuf classes dynamically
-                PostAnnouncement = getattr(federation_pb2, 'PostAnnouncement')
-                FederationEnvelope = getattr(federation_pb2, 'FederationEnvelope')
-                
+                PostAnnouncement = federation_pb2.PostAnnouncement
+                FederationEnvelope = federation_pb2.FederationEnvelope
+
                 # Create protobuf messages using the classes
                 post_announcement = PostAnnouncement(
                     post_id=federation_post_id or b"",  # Use federation_post_id if available
@@ -385,7 +440,16 @@ async def delete_post(
     current_user: Annotated[User, Depends(get_current_user)],
     db: SessionDep,
 ) -> None:
-    """Soft-delete a post (visible to author only)."""
+    """Soft-delete a post (visible to author only).
+
+    Args:
+        post_id: ID of the post to delete
+        current_user: Authenticated user (must be post author)
+        db: Database session
+
+    Raises:
+        HTTPException: If post not found or user is not the author
+    """
     post = db.query(Post).filter(Post.id == post_id, Post.deleted.is_(False)).first()
 
     if not post:

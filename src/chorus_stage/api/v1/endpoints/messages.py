@@ -60,7 +60,20 @@ async def send_message(
     db: SessionDep,
     pow_service: PowServiceDep,
 ) -> dict[str, Any]:
-    """Send an end-to-end encrypted direct message."""
+    """Send an end-to-end encrypted direct message.
+
+    Args:
+        message_data: Message creation data including recipient, ciphertext, and PoW
+        current_user: Authenticated user sending the message
+        db: Database session
+        pow_service: Proof-of-work service for verification
+
+    Returns:
+        Dictionary with status and message ID
+
+    Raises:
+        HTTPException: If recipient not found, invalid PoW, or base64 decode error
+    """
     try:
         recipient_pubkey = bytes.fromhex(message_data.recipient_pubkey_hex)
     except ValueError as exc:  # pragma: no cover - validation should catch
@@ -83,7 +96,12 @@ async def send_message(
 
     sender_pubkey_hex = current_user.pubkey.hex()
 
-    if not pow_service.verify_pow("message", sender_pubkey_hex, message_data.pow_nonce):
+    if not pow_service.verify_pow(
+        "message",
+        sender_pubkey_hex,
+        message_data.pow_nonce,
+        hash_algorithm=message_data.hash_algorithm,
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid proof of work for sending a message",
@@ -172,7 +190,17 @@ async def get_inbox(
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
 ) -> list[dict[str, Any]]:
-    """Get encrypted messages for current user (as recipient)."""
+    """Get encrypted messages for current user (as recipient).
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+        limit: Maximum number of messages to return (max 100)
+        before: Return messages before this order_index for pagination
+
+    Returns:
+        List of serialized message dictionaries
+    """
     query = db.query(DirectMessage).filter(
         DirectMessage.recipient_user_id == current_user.user_id
     )
@@ -191,7 +219,17 @@ async def get_sent_messages(
     limit: int = Query(50, le=100),
     before: int | None = Query(None),
 ) -> list[dict[str, Any]]:
-    """Get encrypted messages sent by current user."""
+    """Get encrypted messages sent by current user.
+
+    Args:
+        current_user: Authenticated user
+        db: Database session
+        limit: Maximum number of messages to return (max 100)
+        before: Return messages before this order_index for pagination
+
+    Returns:
+        List of serialized message dictionaries
+    """
     query = db.query(DirectMessage).filter(
         DirectMessage.sender_user_id == current_user.user_id
     )
@@ -209,7 +247,19 @@ async def mark_message_read(
     current_user: CurrentUserDep,
     db: SessionDep,
 ) -> dict[str, str]:
-    """Mark a direct message as read/delivered."""
+    """Mark a direct message as read/delivered.
+
+    Args:
+        message_id: ID of the message to mark as read
+        current_user: Authenticated user (must be recipient)
+        db: Database session
+
+    Returns:
+        Dictionary with status confirmation
+
+    Raises:
+        HTTPException: If message not found or user is not the recipient
+    """
     message = (
         db.query(DirectMessage)
         .filter(

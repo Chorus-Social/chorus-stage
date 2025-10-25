@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import literal_column
+from sqlalchemy import literal_column, text
 from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
@@ -44,6 +44,13 @@ async def get_public_config(pow_service: PowServiceDep) -> dict[str, object]:
     """Return a sanitized snapshot of public runtime configuration.
 
     Excludes secrets and connection strings; suitable for transparency UIs.
+
+    Args:
+        pow_service: Proof-of-work service for difficulty configuration
+
+    Returns:
+        Dictionary containing public configuration including app settings,
+        PoW difficulties, moderation thresholds, and bridge status
     """
     return {
         "app": {
@@ -81,7 +88,14 @@ async def get_public_config(pow_service: PowServiceDep) -> dict[str, object]:
 
 @router.get("/clock")
 async def get_clock(db: SessionDep) -> dict[str, int]:
-    """Expose the monotonic system clock for transparency and tooling."""
+    """Expose the monotonic system clock for transparency and tooling.
+
+    Args:
+        db: Database session
+
+    Returns:
+        Dictionary with current day_seq and hour_seq values
+    """
     clock = db.query(SystemClock).first()
     if not clock:
         clock = SystemClock(id=1, day_seq=0, hour_seq=0)
@@ -93,7 +107,15 @@ async def get_clock(db: SessionDep) -> dict[str, int]:
 
 @router.get("/moderation-stats")
 async def get_moderation_stats(db: SessionDep) -> dict[str, object]:
-    """Return aggregated moderation statistics without revealing identities."""
+    """Return aggregated moderation statistics without revealing identities.
+
+    Args:
+        db: Database session
+
+    Returns:
+        Dictionary containing case counts, vote statistics, per-community data,
+        and top flagged posts for transparency reporting
+    """
     total_cases = db.query(ModerationCase).count() or 0
     open_cases = (
         db.query(ModerationCase)
@@ -182,7 +204,14 @@ async def get_moderation_stats(db: SessionDep) -> dict[str, object]:
 
 @router.get("/activity-stats")
 async def get_activity_stats(db: SessionDep) -> dict[str, int]:
-    """Network-wide activity counters (anonymized)."""
+    """Network-wide activity counters (anonymized).
+
+    Args:
+        db: Database session
+
+    Returns:
+        Dictionary with counts of users, communities, posts, votes, and messages
+    """
     users = db.query(User).count() or 0
     posts = db.query(Post).count() or 0
     votes = db.query(PostVote).count() or 0
@@ -199,7 +228,11 @@ async def get_activity_stats(db: SessionDep) -> dict[str, int]:
 
 @router.get("/bridge/health")
 async def get_bridge_health() -> dict[str, object]:
-    """Get Bridge health status and circuit breaker information."""
+    """Get Bridge health status and circuit breaker information.
+
+    Returns:
+        Dictionary with bridge status, health information, and error details
+    """
     if not bridge_enabled():
         return {
             "status": "disabled",
@@ -213,7 +246,11 @@ async def get_bridge_health() -> dict[str, object]:
 
 @router.get("/bridge/metrics")
 async def get_bridge_metrics() -> dict[str, object]:
-    """Get Bridge operation metrics and performance data."""
+    """Get Bridge operation metrics and performance data.
+
+    Returns:
+        Dictionary with bridge operation metrics and performance statistics
+    """
     if not bridge_enabled():
         return {
             "enabled": False,
@@ -222,3 +259,118 @@ async def get_bridge_metrics() -> dict[str, object]:
 
     bridge_client = get_bridge_client()
     return bridge_client.get_metrics()
+
+
+@router.get("/health")
+async def get_system_health(db: SessionDep) -> dict[str, object]:
+    """Comprehensive health check endpoint for Stage service monitoring.
+
+    Args:
+        db: Database session
+
+    Returns:
+        Dictionary with overall system status, component health, and version info
+    """
+    try:
+        # Test database connectivity
+        db.execute(text("SELECT 1"))
+        db_status = "healthy"
+    except (ConnectionError, OSError) as e:
+        db_status = f"unhealthy: {str(e)}"
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+
+    # Test bridge connectivity if enabled
+    bridge_status = "disabled"
+    if bridge_enabled():
+        try:
+            bridge_client = get_bridge_client()
+            bridge_health = await bridge_client.health_check()
+            bridge_status = bridge_health.get("status", "unknown")
+        except (ConnectionError, OSError) as e:
+            bridge_status = f"error: {str(e)}"
+        except Exception as e:
+            bridge_status = f"error: {str(e)}"
+
+    return {
+        "status": "healthy" if db_status == "healthy" else "unhealthy",
+        "timestamp": int(__import__("time").time()),
+        "components": {
+            "database": db_status,
+            "bridge": bridge_status,
+        },
+        "version": settings.app_version,
+        "instance_id": getattr(settings, 'bridge_instance_id', 'stage-service')
+    }
+
+
+@router.get("/metrics")
+async def get_system_metrics(db: SessionDep) -> dict[str, object]:
+    """Get comprehensive system metrics for monitoring.
+
+    Args:
+        db: Database session
+
+    Returns:
+        Dictionary with database health, activity metrics, moderation stats,
+        and bridge status for monitoring dashboards
+    """
+    try:
+        # Database metrics
+        db.execute(text("SELECT 1"))
+        db_healthy = True
+    except (ConnectionError, OSError):
+        db_healthy = False
+    except Exception:
+        db_healthy = False
+
+    # Activity metrics
+    users_count = db.query(User).count() or 0
+    posts_count = db.query(Post).count() or 0
+    votes_count = db.query(PostVote).count() or 0
+    messages_count = db.query(DirectMessage).count() or 0
+    communities_count = db.query(Community).count() or 0
+
+    # Moderation metrics
+    moderation_cases = db.query(ModerationCase).count() or 0
+    open_cases = db.query(ModerationCase).filter(ModerationCase.state == 0).count() or 0
+
+    return {
+        "timestamp": int(__import__("time").time()),
+        "database": {
+            "healthy": db_healthy,
+            "status": "connected" if db_healthy else "disconnected"
+        },
+        "activity": {
+            "users": int(users_count),
+            "posts": int(posts_count),
+            "votes": int(votes_count),
+            "messages": int(messages_count),
+            "communities": int(communities_count)
+        },
+        "moderation": {
+            "total_cases": int(moderation_cases),
+            "open_cases": int(open_cases)
+        },
+        "bridge": {
+            "enabled": bridge_enabled(),
+            "status": "connected" if bridge_enabled() else "disabled"
+        }
+    }
+
+
+@router.get("/status")
+async def get_system_status() -> dict[str, object]:
+    """Get overall system status for monitoring dashboards.
+
+    Returns:
+        Dictionary with service information, version, status, and environment
+    """
+    return {
+        "service": "chorus-stage",
+        "version": settings.app_version,
+        "status": "operational",
+        "timestamp": int(__import__("time").time()),
+        "uptime": "unknown",  # Would be calculated from startup time
+        "environment": "production" if not settings.debug else "development"
+    }

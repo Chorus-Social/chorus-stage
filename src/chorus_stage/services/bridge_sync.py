@@ -122,7 +122,9 @@ class BridgeSyncWorker:
                 await asyncio.sleep(min(interval * 4, 30.0))
                 continue
             except (ValueError, TypeError, KeyError, AttributeError) as e:
-                logger.error("BridgeSyncWorker encountered data processing error: %s", e, exc_info=True)
+                logger.error(
+                    "BridgeSyncWorker encountered data processing error: %s", e, exc_info=True
+                )
                 await asyncio.sleep(min(interval * 4, 30.0))
                 continue
 

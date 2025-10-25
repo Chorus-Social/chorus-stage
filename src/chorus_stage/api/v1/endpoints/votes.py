@@ -50,7 +50,9 @@ def _check_pow_and_replay(
     vote_data: VoteCreate,
 ) -> None:
     pubkey_hex = current_user.pubkey.hex()
-    if not pow_service.verify_pow("vote", pubkey_hex, vote_data.pow_nonce):
+    if not pow_service.verify_pow(
+        "vote", pubkey_hex, vote_data.pow_nonce, hash_algorithm=vote_data.hash_algorithm
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid proof of work for voting",
@@ -139,7 +141,22 @@ async def cast_vote(
     pow_service: PowServiceDep,
     replay_service: ReplayServiceDep,
 ) -> dict[str, str]:
-    """Cast a vote on a post with proof of work verification."""
+    """Cast a vote on a post with proof of work verification.
+
+    Args:
+        vote_data: Vote creation data including post ID, direction, and PoW
+        current_user: Authenticated user casting the vote
+        db: Database session
+        pow_service: Proof-of-work service for verification
+        replay_service: Replay protection service
+
+    Returns:
+        Dictionary with success status
+
+    Raises:
+        HTTPException: If post not found, invalid PoW, replay detected,
+                      or harmful vote cooldown active
+    """
     post = _get_post_or_404(db, vote_data.post_id)
 
     _check_pow_and_replay(
@@ -230,7 +247,16 @@ async def get_my_vote(
     current_user: CurrentUserDep,
     db: SessionDep,
 ) -> dict[str, int]:
-    """Get current user's vote on a specific post."""
+    """Get current user's vote on a specific post.
+
+    Args:
+        post_id: ID of the post to check vote for
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        Dictionary with vote direction (1 for upvote, -1 for downvote, 0 for no vote)
+    """
     vote = db.query(PostVote).filter(
         PostVote.post_id == post_id,
         PostVote.voter_user_id == current_user.user_id,

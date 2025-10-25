@@ -96,7 +96,9 @@ def _ensure_pow_requirements(
             detail="Proof of work nonce has already been used",
         )
 
-    if not pow_service.verify_pow(intent, pubkey_hex, pow_envelope.nonce, pow_envelope.target):
+    if not pow_service.verify_pow(
+        intent, pubkey_hex, pow_envelope.nonce, pow_envelope.target, pow_envelope.hash_algorithm
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid proof of work",
