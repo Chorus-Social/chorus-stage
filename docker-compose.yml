@@ -1,0 +1,173 @@
+version: "3.8"
+
+services:
+  # Chorus Stage - User-facing API server
+  chorus-stage:
+    build: .
+    container_name: chorus-stage
+    restart: unless-stopped
+    ports:
+      - "8000:8000"    # API server
+      - "9090:9090"    # Prometheus metrics
+    environment:
+      - DATABASE_URL=postgresql+psycopg://chorus:${POSTGRES_PASSWORD:-password}@postgres:5432/chorus
+      - BRIDGE_BASE_URL=http://bridge:8001
+      - BRIDGE_INSTANCE_ID=stage-1
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-jwt-secret-key}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379
+      - POW_DIFFICULTY_POST=4
+      - POW_DIFFICULTY_VOTE=4
+      - POW_DIFFICULTY_MESSAGE=4
+      - POW_DIFFICULTY_MODERATE=4
+      - POW_DIFFICULTY_REGISTER=4
+      - POW_DIFFICULTY_LOGIN=4
+    volumes:
+      - ./keys:/app/keys:ro
+      - ./config:/app/config:ro
+      - stage_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - chorus-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: chorus-stage-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=chorus
+      - POSTGRES_USER=chorus
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    networks:
+      - chorus-network
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chorus -d chorus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: chorus-stage-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - chorus-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Database administration tool
+  adminer:
+    image: adminer:latest
+    container_name: chorus-stage-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - chorus-network
+    depends_on:
+      - postgres
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: chorus-stage-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    networks:
+      - chorus-network
+    depends_on:
+      - chorus-stage
+
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chorus-stage-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - chorus-network
+    depends_on:
+      - prometheus
+
+  # Database migration runner
+  migrate:
+    build: .
+    container_name: chorus-stage-migrate
+    command: poetry run alembic upgrade head
+    environment:
+      - DATABASE_URL=postgresql+psycopg://chorus:${POSTGRES_PASSWORD:-password}@postgres:5432/chorus
+    volumes:
+      - ./migrations:/app/migrations:ro
+    networks:
+      - chorus-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  stage_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  chorus-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
