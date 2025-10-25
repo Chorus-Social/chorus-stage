@@ -372,7 +372,7 @@ async def create_post(
     # Handle bridge registration
     if bridge_client.enabled:
         order_index, federation_post_id, federation_origin = await _handle_bridge_registration(
-            bridge_client, current_user, computed_hash, post_data, 
+            bridge_client, current_user, computed_hash, post_data,
             community_slug, parent_federation_id
         )
     else:
