@@ -134,6 +134,75 @@ def _validate_handshake_challenge(
     return nonce_hex
 
 
+async def _get_creation_day_from_bridge() -> int:
+    """Get creation day from bridge if enabled, otherwise return 0."""
+    creation_day = 0
+    if settings.bridge_enabled:
+        try:
+            bridge_client = get_bridge_client()
+            day_proof = await bridge_client.fetch_day_proof(day=0)  # Placeholder for current day
+            if day_proof:
+                creation_day = day_proof.day_number
+        except BridgeDisabledError:
+            # Bridge is disabled, use default creation_day
+            pass
+        except Exception as e:
+            # Log the error and proceed with default creation_day
+            print(f"Error fetching day proof from bridge: {e}")
+            pass
+    return creation_day
+
+
+def _create_or_update_user(
+    db: Session, pubkey_bytes: bytes, user_hash: bytes, payload: RegisterRequest, creation_day: int
+) -> tuple[User, bool]:
+    """Create or update user in database. Returns (user, created)."""
+    user = db.query(User).filter(User.pubkey == pubkey_bytes).first()
+    created = False
+    if user is None:
+        user = User(
+            user_id=user_hash,
+            pubkey=pubkey_bytes,
+            display_name=payload.display_name,
+            accent_color=payload.accent_color,
+            creation_day=creation_day,
+        )
+        user.state = UserState(user_id=user_hash)
+        db.add(user)
+        created = True
+    else:
+        # Update optional persona fields without revealing linkage.
+        # NOTE: Profile updates via this endpoint are deprecated.
+        # Use PATCH /users/me/profile instead for better performance and UX.
+        user.display_name = payload.display_name
+        user.accent_color = payload.accent_color
+        if user.state is None:
+            user.state = UserState(user_id=user.user_id)
+    return user, created
+
+
+async def _federate_user_registration(
+    user_hash: bytes, pubkey_bytes: bytes, creation_day: int, db: Session
+) -> None:
+    """Federate user registration if bridge is enabled."""
+    if settings.bridge_enabled:
+        try:
+            bridge_client = get_bridge_client()
+            idempotency_key = f"user-registration-{user_hash.hex()}"
+            user_registration_envelope = await bridge_client.create_user_registration_envelope(
+                user_pubkey_bytes=pubkey_bytes,
+                creation_day=creation_day,
+                idempotency_key=idempotency_key,
+            )
+            await bridge_client.send_federation_envelope(
+                db, user_registration_envelope, idempotency_key
+            )
+        except BridgeDisabledError:
+            print("Bridge is disabled, user registration not federated.")
+        except Exception as e:
+            print(f"Error federating user registration: {e}")
+
+
 def create_access_token(subject: bytes | str, extra_claims: dict[str, str] | None = None) -> str:
     """Create JWT access token for user authentication."""
     sub = subject if isinstance(subject, str) else _encode_b64(subject)
@@ -242,42 +311,9 @@ async def register_user(
         )
 
     user_hash = blake3_digest(pubkey_bytes)
+    creation_day = await _get_creation_day_from_bridge()
 
-    creation_day = 0
-    if settings.bridge_enabled:
-        try:
-            bridge_client = get_bridge_client()
-            day_proof = await bridge_client.fetch_day_proof(day=0) # Placeholder for current day
-            if day_proof:
-                creation_day = day_proof.day_number
-        except BridgeDisabledError:
-            # Bridge is disabled, use default creation_day
-            pass
-        except Exception as e:
-            # Log the error and proceed with default creation_day
-            print(f"Error fetching day proof from bridge: {e}")
-            pass
-
-    user = db.query(User).filter(User.pubkey == pubkey_bytes).first()
-    created = False
-    if user is None:
-        user = User(
-            user_id=user_hash,
-            pubkey=pubkey_bytes,
-            display_name=payload.display_name,
-            accent_color=payload.accent_color,
-            creation_day=creation_day,
-        )
-        user.state = UserState(user_id=user_hash)
-        db.add(user)
-        created = True
-    else:
-        # Update optional persona fields without revealing linkage.
-        user.display_name = payload.display_name
-        user.accent_color = payload.accent_color
-        if user.state is None:
-            user.state = UserState(user_id=user.user_id)
-
+    user, created = _create_or_update_user(db, pubkey_bytes, user_hash, payload, creation_day)
     db.commit()
 
     # Register replay artifacts after the transaction succeeds.
@@ -285,22 +321,7 @@ async def register_user(
     replay_service.register_replay(pubkey_hex, challenge_nonce_hex)
 
     # Federate user registration if bridge is enabled
-    if settings.bridge_enabled:
-        try:
-            bridge_client = get_bridge_client()
-            idempotency_key = f"user-registration-{user_hash.hex()}"
-            user_registration_envelope = await bridge_client.create_user_registration_envelope(
-                user_pubkey_bytes=pubkey_bytes,
-                creation_day=creation_day,
-                idempotency_key=idempotency_key,
-            )
-            await bridge_client.send_federation_envelope(
-                db, user_registration_envelope, idempotency_key
-            )
-        except BridgeDisabledError:
-            print("Bridge is disabled, user registration not federated.")
-        except Exception as e:
-            print(f"Error federating user registration: {e}")
+    await _federate_user_registration(user_hash, pubkey_bytes, creation_day, db)
 
     user_id_b64 = _encode_b64(user.user_id)
     return RegisterResponse(user_id=user_id_b64, created=created)
