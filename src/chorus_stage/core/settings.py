@@ -145,9 +145,9 @@ class Settings(BaseSettings):
         default=["*"],
         alias="CORS_ORIGINS",
     )
-    cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
+    cors_allow_credentials: bool = Field(default=False, alias="CORS_ALLOW_CREDENTIALS")
     cors_allow_methods: list[str] = Field(
-        default=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        default=["*"],
         alias="CORS_ALLOW_METHODS",
     )
     cors_allow_headers: list[str] = Field(
@@ -164,10 +164,10 @@ class Settings(BaseSettings):
     @property
     def database_url_sync(self) -> str:
         """Return a sync-compatible database URL for tooling.
-        
+
         Converts asyncpg URLs to psycopg for synchronous database operations
         like Alembic migrations.
-        
+
         Returns:
             Database URL compatible with synchronous database drivers
         """
@@ -179,7 +179,7 @@ class Settings(BaseSettings):
     @property
     def effective_database_url(self) -> str:
         """Return the database URL respecting testing overrides.
-        
+
         Returns:
             The active database URL (test database if in testing mode, otherwise production)
         """
@@ -190,7 +190,7 @@ class Settings(BaseSettings):
     @property
     def moderation_thresholds(self) -> dict[str, float]:
         """Return moderation thresholds as a convenience dictionary.
-        
+
         Returns:
             Dictionary with moderation threshold values for content filtering
         """
@@ -202,7 +202,7 @@ class Settings(BaseSettings):
     @property
     def settings(self) -> "Settings":
         """Provide self-reference for legacy imports expecting a module attribute.
-        
+
         Returns:
             Self-reference for backward compatibility
         """

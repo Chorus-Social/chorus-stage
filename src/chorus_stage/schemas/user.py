@@ -1,8 +1,9 @@
 """User-related Pydantic schemas."""
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PowEnvelope(BaseModel):
@@ -72,3 +73,41 @@ class LoginResponse(BaseModel):
     access_token: str = Field(..., description="JWT access token")
     token_type: str = Field(..., description="Token type (typically 'bearer')")
     session_nonce: str = Field(..., description="Ephemeral nonce for client session binding")
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Schema for updating user profile information."""
+
+    display_name: str | None = Field(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Optional persona label (1-100 characters)"
+    )
+    accent_color: str | None = Field(
+        None,
+        description="Optional hex color code (e.g., #FF5733)"
+    )
+
+    @field_validator("accent_color")
+    @classmethod
+    def validate_accent_color(cls, v: str | None) -> str | None:
+        """Validate accent color is a valid hex color code."""
+        if v is None:
+            return v
+
+        # Check if it matches #RRGGBB pattern
+        hex_pattern = re.compile(r"^#[0-9A-Fa-f]{6}$")
+        if not hex_pattern.match(v):
+            raise ValueError("Accent color must be a valid hex color code (e.g., #FF5733)")
+
+        return v
+
+
+class ProfileResponse(BaseModel):
+    """Response schema for user profile information."""
+
+    display_name: str | None = Field(..., description="User's display name")
+    accent_color: str | None = Field(..., description="User's accent color")
+
+    model_config = ConfigDict(from_attributes=True)
