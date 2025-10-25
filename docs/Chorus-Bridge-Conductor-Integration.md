@@ -1,6 +1,6 @@
 # Chorus Bridge ↔ Conductor Integration Guide
 
-This guide provides comprehensive instructions for integrating Chorus Bridge with the production-ready Conductor consensus engine. This documentation is designed for AI agents and developers to successfully connect and operate the two systems together.
+This guide provides comprehensive instructions for integrating Chorus Bridge with the Conductor consensus engine. This documentation is designed for AI agents and developers to successfully connect and operate the two systems together.
 
 ## 🏗️ Architecture Overview
 
