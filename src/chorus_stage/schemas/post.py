@@ -18,6 +18,10 @@ class PostCreate(BaseModel):
         ge=15,
         description="Proof of work difficulty",
     )
+    pow_hash_algorithm: str = Field(
+        "blake3",
+        description="Hash algorithm used for proof of work (blake3 or sha256)",
+    )
     content_hash: str = Field(..., description="Hash of the content for integrity verification")
 
 

@@ -11,6 +11,10 @@ class PowEnvelope(BaseModel):
     nonce: str = Field(..., description="Client-computed PoW nonce")
     difficulty: int = Field(..., ge=1, description="Difficulty (leading zero bits) satisfied")
     target: str = Field(..., description="Opaque PoW challenge identifier")
+    hash_algorithm: str = Field(
+        "blake3",
+        description="Hash algorithm used for proof of work (blake3 or sha256)",
+    )
 
 
 class SignatureProof(BaseModel):

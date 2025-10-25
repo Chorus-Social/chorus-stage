@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from chorus_stage.api.v1 import (
@@ -29,6 +30,15 @@ app = FastAPI(
     title="Chorus API",
     description="Anonymous-by-design social network API",
     version="1.0.0",
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=settings.cors_allow_methods,
+    allow_headers=settings.cors_allow_headers,
 )
 
 # Add GZip middleware for compression

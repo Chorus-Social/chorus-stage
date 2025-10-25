@@ -13,6 +13,10 @@ class DirectMessageCreate(BaseModel):
     recipient_pubkey_hex: str = Field(..., description="Hex-encoded public key of recipient")
     header_blob: str | None = Field(None, description="Optional base64-encoded encryption header")
     pow_nonce: str = Field(..., description="Proof of work nonce")
+    hash_algorithm: str = Field(
+        "blake3",
+        description="Hash algorithm used for proof of work (blake3 or sha256)",
+    )
 
 
 class DirectMessageResponse(BaseModel):
