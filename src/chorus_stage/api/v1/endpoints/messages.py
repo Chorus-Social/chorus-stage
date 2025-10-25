@@ -9,15 +9,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc
-from sqlalchemy.orm import Session
 
+from chorus_stage.api.v1.dependencies import CurrentUserDep, SessionDep
 from chorus_stage.core.settings import settings
-from chorus_stage.db.session import get_db
 from chorus_stage.models import DirectMessage, User
 from chorus_stage.schemas.direct_message import DirectMessageCreate
 from chorus_stage.services.pow import PowService, get_pow_service
 
-from .posts import get_current_user, get_system_clock
+from .posts import get_system_clock
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -27,8 +26,6 @@ def get_pow_service_dep() -> PowService:
     return get_pow_service()
 
 
-SessionDep = Annotated[Session, Depends(get_db)]
-CurrentUserDep = Annotated[User, Depends(get_current_user)]
 PowServiceDep = Annotated[PowService, Depends(get_pow_service_dep)]
 
 

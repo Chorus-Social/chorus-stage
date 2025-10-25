@@ -18,9 +18,29 @@ LIVE_URL ?= postgresql+psycopg://chorus:is-cool@localhost:5432/chorus_live
 TEST_URL ?= postgresql+pyscopg://chorus_testing:blowItUp@localhost:5432/chorus_testing
 
 .PHONY: help install lock venv info run dev db-init migrate revision downgrade reset-db db-hard-reset lint fmt test clean
+.PHONY: live-up test-up live-down test-down live-logs test-logs live-shell test-shell live-migrate test-migrate dev-up dev-down dev-shell clean-docker
 
 help:
-	@echo "targets: install | run | dev | db-init | migrate | revision | downgrade | reset-db | lint | fmt | test | info | clean"
+	@echo "=== Chorus Stage Development ==="
+	@echo "setup:     install | lock | venv | info"
+	@echo "app:       run | dev | db-init | migrate"
+	@echo "database:  live-revision | test-revision | downgrade | reset-db | db-hard-reset"
+	@echo "quality:   lint | fmt | test | test-unit | test-services"
+	@echo "cleanup:   clean"
+	@echo ""
+	@echo "=== Docker Compose Management ==="
+	@echo "live:      live-up | live-down | live-logs | live-shell | live-migrate"
+	@echo "test:      test-up | test-down | test-logs | test-shell | test-migrate"
+	@echo "dev:       dev-up | dev-down | dev-shell"
+	@echo "cleanup:   clean-docker"
+	@echo ""
+	@echo "Environment URLs:"
+	@echo "  Live API:    http://localhost:8000"
+	@echo "  Test API:    http://localhost:8001"
+	@echo "  Live Admin:  http://localhost:8080"
+	@echo "  Test Admin:  http://localhost:8081"
+	@echo "  Live Grafana: http://localhost:3001"
+	@echo "  Test Grafana: http://localhost:3002"
 
 # ----- setup -----
 install:
@@ -94,3 +114,48 @@ test-services:
 clean:
 	@find . -name "__pycache__" -type d -prune -exec rm -rf {} + || true
 	@rm -rf .pytest_cache .ruff_cache dist build *.egg-info || true
+
+# ----- Docker Compose Management -----
+live-up: ## Start live environment
+	docker-compose -f docker-compose.live.yml up -d
+
+test-up: ## Start test environment
+	docker-compose -f docker-compose.test.yml up -d
+
+live-down: ## Stop live environment
+	docker-compose -f docker-compose.live.yml down
+
+test-down: ## Stop test environment
+	docker-compose -f docker-compose.test.yml down
+
+live-logs: ## Show live environment logs
+	docker-compose -f docker-compose.live.yml logs -f
+
+test-logs: ## Show test environment logs
+	docker-compose -f docker-compose.test.yml logs -f
+
+live-shell: ## Open shell in live chorus-stage container
+	docker exec -it chorus-stage-live /bin/bash
+
+test-shell: ## Open shell in test chorus-stage container
+	docker exec -it chorus-stage-test /bin/bash
+
+live-migrate: ## Run migrations on live database
+	docker-compose -f docker-compose.live.yml run --rm migrate
+
+test-migrate: ## Run migrations on test database
+	docker-compose -f docker-compose.test.yml run --rm migrate
+
+dev-up: ## Start test environment (uses dev Dockerfile)
+	docker-compose -f docker-compose.test.yml up -d
+
+dev-down: ## Stop dev environment
+	docker-compose -f docker-compose.test.yml down
+
+dev-shell: ## Open shell in dev container
+	docker exec -it chorus-stage-test /bin/bash
+
+clean-docker: ## Remove all containers, networks, and volumes
+	docker-compose -f docker-compose.live.yml down -v --remove-orphans
+	docker-compose -f docker-compose.test.yml down -v --remove-orphans
+	docker system prune -f

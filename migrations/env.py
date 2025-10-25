@@ -25,9 +25,14 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Check for ALEMBIC_URL first (for explicit override)
 alembic_url = os.getenv("ALEMBIC_URL")
 if alembic_url:
     config.set_main_option("sqlalchemy.url", alembic_url)
+# Then check for DATABASE_URL (used by compose files)
+elif os.getenv("DATABASE_URL"):
+    config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL"))
+# Fall back to settings (for backward compatibility)
 elif config is not None and not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", settings.database_url_sync)
 

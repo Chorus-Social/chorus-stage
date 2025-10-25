@@ -769,6 +769,52 @@ Get comprehensive system metrics.
 
 ### **User Transparency Endpoints**
 
+#### **GET /users/me/profile**
+
+Get current user's profile information.
+
+**Authentication:** Required (JWT Bearer token)
+
+**Response:**
+```json
+{
+  "display_name": "Anonymous User",
+  "accent_color": "#FF5733"
+}
+```
+
+#### **PATCH /users/me/profile**
+
+Update current user's profile information.
+
+**Authentication:** Required (JWT Bearer token)
+
+**Request:**
+```json
+{
+  "display_name": "New Display Name",
+  "accent_color": "#00FF00"
+}
+```
+
+**Request Fields:**
+- `display_name` (string, optional): User's display name (1-100 characters)
+- `accent_color` (string, optional): Hex color code (e.g., #FF5733)
+
+**Response:**
+```json
+{
+  "display_name": "New Display Name",
+  "accent_color": "#00FF00"
+}
+```
+
+**Notes:**
+- Both fields are optional - only provided fields will be updated
+- Display name must be 1-100 characters long
+- Accent color must be a valid hex color code (#RRGGBB format)
+- No proof-of-work required for profile updates
+
 #### **GET /users/{user_id}/summary**
 
 Get anonymized overview of a user's activity.

@@ -1,0 +1,361 @@
+services:
+  # Chorus Stage - User-facing API server (TEST)
+  chorus-stage:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: chorus-stage-test
+    restart: unless-stopped
+    ports:
+      - "8001:8000"    # API server (different port)
+      - "9091:9090"    # Prometheus metrics (different port)
+    environment:
+      # Core application settings
+      - APP_NAME=${APP_NAME:-Chorus Stage Test}
+      - APP_VERSION=${APP_VERSION:-0.1.0}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=${DEBUG:-true}
+      - ASCII_ART_ENABLED=${ASCII_ART_ENABLED:-true}
+      - ASCII_ART_LINE_DELAY=${ASCII_ART_LINE_DELAY:-0.05}
+      
+      # Database configuration (TEST)
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_TEST_USER:-chorus_testing}:${POSTGRES_TEST_PASSWORD:-random_testing_password}@postgres:5432/${POSTGRES_TEST_DB:-chorus_testing}
+      - SQL_DEBUG=${SQL_DEBUG:-true}
+      
+      # Redis configuration
+      - REDIS_URL=redis://redis:6379
+      
+      # Authentication / crypto
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
+      - LOGIN_CHALLENGE=${LOGIN_CHALLENGE:-test_nonce_value}
+      
+      # Proof-of-work difficulties (lower for testing)
+      - POW_DIFFICULTY_POST=${POW_DIFFICULTY_POST:-8}
+      - POW_DIFFICULTY_VOTE=${POW_DIFFICULTY_VOTE:-2}
+      - POW_DIFFICULTY_MESSAGE=${POW_DIFFICULTY_MESSAGE:-4}
+      - POW_DIFFICULTY_MODERATE=${POW_DIFFICULTY_MODERATE:-8}
+      - POW_DIFFICULTY_REGISTER=${POW_DIFFICULTY_REGISTER:-10}
+      - POW_DIFFICULTY_LOGIN=${POW_DIFFICULTY_LOGIN:-10}
+      
+      # Adaptive PoW leases (UX smoothing)
+      - POW_ENABLE_LEASES=${POW_ENABLE_LEASES:-true}
+      - POW_LEASE_SECONDS=${POW_LEASE_SECONDS:-120}
+      - POW_LEASE_ACTIONS=${POW_LEASE_ACTIONS:-3}
+      
+      # Feed / moderation tuning
+      - RECENT_WINDOW_SIZE=${RECENT_WINDOW_SIZE:-50}
+      - CONTROVERSIAL_MIN_TOTAL=${CONTROVERSIAL_MIN_TOTAL:-5}
+      - TOKEN_EPOCH_SIZE=${TOKEN_EPOCH_SIZE:-10000}
+      - HARMFUL_HIDE_THRESHOLD=${HARMFUL_HIDE_THRESHOLD:-0.2}
+      - CLEAR_THRESHOLD=${CLEAR_THRESHOLD:-0.6}
+      - MODERATION_MIN_COMMUNITY_SIZE=${MODERATION_MIN_COMMUNITY_SIZE:-25}
+      
+      # Harmful vote cool-downs (anti-harassment throttling)
+      - HARMFUL_VOTE_AUTHOR_COOLDOWN_SECONDS=${HARMFUL_VOTE_AUTHOR_COOLDOWN_SECONDS:-900}
+      - HARMFUL_VOTE_POST_COOLDOWN_SECONDS=${HARMFUL_VOTE_POST_COOLDOWN_SECONDS:-120}
+      
+      # Moderation trigger global cool-down
+      - MODERATION_TRIGGER_COOLDOWN_SECONDS=${MODERATION_TRIGGER_COOLDOWN_SECONDS:-60}
+      
+      # Chorus Bridge integration
+      - CHORUS_BRIDGE_ENABLED=${CHORUS_BRIDGE_ENABLED:-false}
+      - CHORUS_BRIDGE_BASE_URL=${CHORUS_BRIDGE_BASE_URL}
+      - CHORUS_BRIDGE_INSTANCE_ID=${CHORUS_BRIDGE_INSTANCE_ID:-stage-test}
+      - CHORUS_BRIDGE_SHARED_SECRET=${CHORUS_BRIDGE_SHARED_SECRET}
+      - CHORUS_BRIDGE_JWT_AUD=${CHORUS_BRIDGE_JWT_AUD:-chorus-bridge}
+      - CHORUS_BRIDGE_TOKEN_TTL_SECONDS=${CHORUS_BRIDGE_TOKEN_TTL_SECONDS:-300}
+      - CHORUS_BRIDGE_HTTP_TIMEOUT_SECONDS=${CHORUS_BRIDGE_HTTP_TIMEOUT_SECONDS:-10}
+      - CHORUS_BRIDGE_PULL_INTERVAL_SECONDS=${CHORUS_BRIDGE_PULL_INTERVAL_SECONDS:-2}
+      - CHORUS_BRIDGE_MTLS_ENABLED=${CHORUS_BRIDGE_MTLS_ENABLED:-false}
+      - CHORUS_BRIDGE_CLIENT_CERT=${CHORUS_BRIDGE_CLIENT_CERT}
+      - CHORUS_BRIDGE_CLIENT_KEY=${CHORUS_BRIDGE_CLIENT_KEY}
+      - CHORUS_BRIDGE_CA_CERT=${CHORUS_BRIDGE_CA_CERT}
+    volumes:
+      - ./keys:/app/keys:ro
+      - ./config:/app/config:ro
+      - stage_test_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - chorus-test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database (TEST)
+  postgres:
+    image: postgres:15-alpine
+    container_name: chorus-stage-postgres-test
+    restart: unless-stopped
+    ports:
+      - "5433:5432"    # Different port to avoid conflicts
+    environment:
+      - POSTGRES_DB=${POSTGRES_TEST_DB:-chorus_testing}
+      - POSTGRES_USER=${POSTGRES_TEST_USER:-chorus_testing}
+      - POSTGRES_PASSWORD=${POSTGRES_TEST_PASSWORD:-random_testing_password}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    networks:
+      - chorus-test-network
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_TEST_USER:-chorus_testing} -d ${POSTGRES_TEST_DB:-chorus_testing}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis for caching and sessions (TEST)
+  redis:
+    image: redis:7-alpine
+    container_name: chorus-stage-redis-test
+    restart: unless-stopped
+    ports:
+      - "6380:6379"    # Different port to avoid conflicts
+    volumes:
+      - redis_test_data:/data
+    networks:
+      - chorus-test-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Database administration tool (TEST)
+  adminer:
+    image: adminer:latest
+    container_name: chorus-stage-adminer-test
+    restart: unless-stopped
+    ports:
+      - "8081:8080"    # Different port to avoid conflicts
+    networks:
+      - chorus-test-network
+    depends_on:
+      - postgres
+
+  # Prometheus for metrics collection (TEST)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: chorus-stage-prometheus-test
+    restart: unless-stopped
+    ports:
+      - "9092:9090"    # Different port to avoid conflicts
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_test_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    networks:
+      - chorus-test-network
+    depends_on:
+      - chorus-stage
+
+  # Grafana for metrics visualization (TEST)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chorus-stage-grafana-test
+    restart: unless-stopped
+    ports:
+      - "3002:3000"    # Different port to avoid conflicts
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_test_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - chorus-test-network
+    depends_on:
+      - prometheus
+
+  # Database migration runner (TEST)
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: chorus-stage-migrate-test
+    command: poetry run alembic upgrade head
+    environment:
+      # Core application settings (required by settings.py)
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=${DEBUG:-true}
+      
+      # Database configuration (TEST)
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_TEST_USER:-chorus_testing}:${POSTGRES_TEST_PASSWORD:-random_testing_password}@postgres:5432/${POSTGRES_TEST_DB:-chorus_testing}
+      - SQL_DEBUG=${SQL_DEBUG:-true}
+      
+      # Redis configuration (required by settings.py)
+      - REDIS_URL=redis://redis:6379
+      
+      # Authentication / crypto (required by settings.py)
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
+      - LOGIN_CHALLENGE=${LOGIN_CHALLENGE:-test_nonce_value}
+      
+      # Proof-of-work difficulties (required by settings.py)
+      - POW_DIFFICULTY_POST=${POW_DIFFICULTY_POST:-8}
+      - POW_DIFFICULTY_VOTE=${POW_DIFFICULTY_VOTE:-2}
+      - POW_DIFFICULTY_MESSAGE=${POW_DIFFICULTY_MESSAGE:-4}
+      - POW_DIFFICULTY_MODERATE=${POW_DIFFICULTY_MODERATE:-8}
+      - POW_DIFFICULTY_REGISTER=${POW_DIFFICULTY_REGISTER:-10}
+      - POW_DIFFICULTY_LOGIN=${POW_DIFFICULTY_LOGIN:-10}
+      
+      # Adaptive PoW leases (required by settings.py)
+      - POW_ENABLE_LEASES=${POW_ENABLE_LEASES:-true}
+      - POW_LEASE_SECONDS=${POW_LEASE_SECONDS:-120}
+      - POW_LEASE_ACTIONS=${POW_LEASE_ACTIONS:-3}
+      
+      # Feed / moderation tuning (required by settings.py)
+      - RECENT_WINDOW_SIZE=${RECENT_WINDOW_SIZE:-50}
+      - CONTROVERSIAL_MIN_TOTAL=${CONTROVERSIAL_MIN_TOTAL:-5}
+      - TOKEN_EPOCH_SIZE=${TOKEN_EPOCH_SIZE:-10000}
+      - HARMFUL_HIDE_THRESHOLD=${HARMFUL_HIDE_THRESHOLD:-0.2}
+      - CLEAR_THRESHOLD=${CLEAR_THRESHOLD:-0.6}
+      - MODERATION_MIN_COMMUNITY_SIZE=${MODERATION_MIN_COMMUNITY_SIZE:-25}
+      
+      # Harmful vote cool-downs (required by settings.py)
+      - HARMFUL_VOTE_AUTHOR_COOLDOWN_SECONDS=${HARMFUL_VOTE_AUTHOR_COOLDOWN_SECONDS:-900}
+      - HARMFUL_VOTE_POST_COOLDOWN_SECONDS=${HARMFUL_VOTE_POST_COOLDOWN_SECONDS:-120}
+      
+      # Moderation trigger global cool-down (required by settings.py)
+      - MODERATION_TRIGGER_COOLDOWN_SECONDS=${MODERATION_TRIGGER_COOLDOWN_SECONDS:-60}
+      
+      # Chorus Bridge integration (required by settings.py)
+      - CHORUS_BRIDGE_ENABLED=${CHORUS_BRIDGE_ENABLED:-false}
+      - CHORUS_BRIDGE_BASE_URL=${CHORUS_BRIDGE_BASE_URL}
+      - CHORUS_BRIDGE_INSTANCE_ID=${CHORUS_BRIDGE_INSTANCE_ID:-stage-test}
+      - CHORUS_BRIDGE_SHARED_SECRET=${CHORUS_BRIDGE_SHARED_SECRET}
+      - CHORUS_BRIDGE_JWT_AUD=${CHORUS_BRIDGE_JWT_AUD:-chorus-bridge}
+      - CHORUS_BRIDGE_TOKEN_TTL_SECONDS=${CHORUS_BRIDGE_TOKEN_TTL_SECONDS:-300}
+      - CHORUS_BRIDGE_HTTP_TIMEOUT_SECONDS=${CHORUS_BRIDGE_HTTP_TIMEOUT_SECONDS:-10}
+      - CHORUS_BRIDGE_PULL_INTERVAL_SECONDS=${CHORUS_BRIDGE_PULL_INTERVAL_SECONDS:-2}
+      - CHORUS_BRIDGE_MTLS_ENABLED=${CHORUS_BRIDGE_MTLS_ENABLED:-false}
+      - CHORUS_BRIDGE_CLIENT_CERT=${CHORUS_BRIDGE_CLIENT_CERT}
+      - CHORUS_BRIDGE_CLIENT_KEY=${CHORUS_BRIDGE_CLIENT_KEY}
+      - CHORUS_BRIDGE_CA_CERT=${CHORUS_BRIDGE_CA_CERT}
+    volumes:
+      - ./migrations:/app/migrations:ro
+    networks:
+      - chorus-test-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # Pytest test runner (TEST)
+  pytest:
+    build:
+      context: .
+      dockerfile: Dockerfile.pytest
+    container_name: chorus-stage-pytest-test
+    environment:
+      # Core application settings
+      - APP_NAME=${APP_NAME:-Chorus Stage Test}
+      - APP_VERSION=${APP_VERSION:-0.1.0}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=${DEBUG:-true}
+      - ASCII_ART_ENABLED=${ASCII_ART_ENABLED:-false}
+      - ASCII_ART_LINE_DELAY=${ASCII_ART_LINE_DELAY:-0.05}
+      
+      # Database configuration (TEST)
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_TEST_USER:-chorus_testing}:${POSTGRES_TEST_PASSWORD:-random_testing_password}@postgres:5432/${POSTGRES_TEST_DB:-chorus_testing}
+      - SQL_DEBUG=${SQL_DEBUG:-true}
+      
+      # Redis configuration
+      - REDIS_URL=redis://redis:6379
+      
+      # Authentication / crypto
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
+      - LOGIN_CHALLENGE=${LOGIN_CHALLENGE:-test_nonce_value}
+      
+      # Proof-of-work difficulties (lower for testing)
+      - POW_DIFFICULTY_POST=${POW_DIFFICULTY_POST:-8}
+      - POW_DIFFICULTY_VOTE=${POW_DIFFICULTY_VOTE:-2}
+      - POW_DIFFICULTY_MESSAGE=${POW_DIFFICULTY_MESSAGE:-4}
+      - POW_DIFFICULTY_MODERATE=${POW_DIFFICULTY_MODERATE:-8}
+      - POW_DIFFICULTY_REGISTER=${POW_DIFFICULTY_REGISTER:-10}
+      - POW_DIFFICULTY_LOGIN=${POW_DIFFICULTY_LOGIN:-10}
+      
+      # Adaptive PoW leases (UX smoothing)
+      - POW_ENABLE_LEASES=${POW_ENABLE_LEASES:-true}
+      - POW_LEASE_SECONDS=${POW_LEASE_SECONDS:-120}
+      - POW_LEASE_ACTIONS=${POW_LEASE_ACTIONS:-3}
+      
+      # Feed / moderation tuning
+      - RECENT_WINDOW_SIZE=${RECENT_WINDOW_SIZE:-50}
+      - CONTROVERSIAL_MIN_TOTAL=${CONTROVERSIAL_MIN_TOTAL:-5}
+      - TOKEN_EPOCH_SIZE=${TOKEN_EPOCH_SIZE:-10000}
+      - HARMFUL_HIDE_THRESHOLD=${HARMFUL_HIDE_THRESHOLD:-0.2}
+      - CLEAR_THRESHOLD=${CLEAR_THRESHOLD:-0.6}
+      - MODERATION_MIN_COMMUNITY_SIZE=${MODERATION_MIN_COMMUNITY_SIZE:-25}
+      
+      # Harmful vote cool-downs (anti-harassment throttling)
+      - HARMFUL_VOTE_AUTHOR_COOLDOWN_SECONDS=${HARMFUL_VOTE_AUTHOR_COOLDOWN_SECONDS:-900}
+      - HARMFUL_VOTE_POST_COOLDOWN_SECONDS=${HARMFUL_VOTE_POST_COOLDOWN_SECONDS:-120}
+      
+      # Moderation trigger global cool-down
+      - MODERATION_TRIGGER_COOLDOWN_SECONDS=${MODERATION_TRIGGER_COOLDOWN_SECONDS:-60}
+      
+      # Chorus Bridge integration
+      - CHORUS_BRIDGE_ENABLED=${CHORUS_BRIDGE_ENABLED:-false}
+      - CHORUS_BRIDGE_BASE_URL=${CHORUS_BRIDGE_BASE_URL}
+      - CHORUS_BRIDGE_INSTANCE_ID=${CHORUS_BRIDGE_INSTANCE_ID:-stage-test}
+      - CHORUS_BRIDGE_SHARED_SECRET=${CHORUS_BRIDGE_SHARED_SECRET}
+      - CHORUS_BRIDGE_JWT_AUD=${CHORUS_BRIDGE_JWT_AUD:-chorus-bridge}
+      - CHORUS_BRIDGE_TOKEN_TTL_SECONDS=${CHORUS_BRIDGE_TOKEN_TTL_SECONDS:-300}
+      - CHORUS_BRIDGE_HTTP_TIMEOUT_SECONDS=${CHORUS_BRIDGE_HTTP_TIMEOUT_SECONDS:-10}
+      - CHORUS_BRIDGE_PULL_INTERVAL_SECONDS=${CHORUS_BRIDGE_PULL_INTERVAL_SECONDS:-2}
+      - CHORUS_BRIDGE_MTLS_ENABLED=${CHORUS_BRIDGE_MTLS_ENABLED:-false}
+      - CHORUS_BRIDGE_CLIENT_CERT=${CHORUS_BRIDGE_CLIENT_CERT}
+      - CHORUS_BRIDGE_CLIENT_KEY=${CHORUS_BRIDGE_CLIENT_KEY}
+      - CHORUS_BRIDGE_CA_CERT=${CHORUS_BRIDGE_CA_CERT}
+    volumes:
+      - ./keys:/app/keys:ro
+      - ./config:/app/config:ro
+      - stage_test_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - chorus-test-network
+    restart: "no"
+
+volumes:
+  postgres_test_data:
+    driver: local
+  redis_test_data:
+    driver: local
+  stage_test_data:
+    driver: local
+  prometheus_test_data:
+    driver: local
+  grafana_test_data:
+    driver: local
+
+networks:
+  chorus-test-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
