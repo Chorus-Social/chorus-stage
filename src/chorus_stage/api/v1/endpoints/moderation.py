@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import Integer, func
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import functions
 
+from chorus_stage.api.v1.dependencies import CurrentUserDep, SessionDep
 from chorus_stage.core.settings import settings
-from chorus_stage.db.session import get_db
 from chorus_stage.models import (
     Community,
     ModerationCase,
     ModerationTrigger,
     ModerationVote,
     Post,
-    User,
 )
 from chorus_stage.models.moderation import MODERATION_STATE_OPEN
 from chorus_stage.schemas.post import PostResponse
@@ -25,7 +24,7 @@ from chorus_stage.services.bridge import BridgeDisabledError, BridgeError, get_b
 from chorus_stage.services.moderation import ModerationService
 from chorus_stage.services.replay import get_replay_service
 
-from .posts import get_current_user, get_system_clock
+from .posts import get_system_clock
 
 # Moderation case states
 MODERATION_STATE_PENDING = 1
@@ -33,8 +32,6 @@ MODERATION_STATE_CLOSED = 2
 
 router = APIRouter(prefix="/moderation", tags=["moderation"])
 moderation_service = ModerationService()
-SessionDep = Annotated[Session, Depends(get_db)]
-CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 def _ensure_default_community(db: Session) -> int:
@@ -314,9 +311,9 @@ async def get_community_moderation_stats(
     )
     counts = (
         db.query(
-            func.sum(functions.cast(ModerationCase.state == MODERATION_STATE_OPEN, Integer())),
-            func.sum(functions.cast(ModerationCase.state == MODERATION_STATE_PENDING, Integer())),
-            func.sum(functions.cast(ModerationCase.state == MODERATION_STATE_CLOSED, Integer())),
+            func.sum(func.cast(ModerationCase.state == MODERATION_STATE_OPEN, Integer())),
+            func.sum(func.cast(ModerationCase.state == MODERATION_STATE_PENDING, Integer())),
+            func.sum(func.cast(ModerationCase.state == MODERATION_STATE_CLOSED, Integer())),
         )
         .filter(ModerationCase.community_id == community.id)
         .one()

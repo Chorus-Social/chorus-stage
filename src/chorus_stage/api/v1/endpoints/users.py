@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import base64
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 
-from chorus_stage.db.session import get_db
+from chorus_stage.api.v1.dependencies import CurrentUserDep, SessionDep
 from chorus_stage.models import (
     Community,
     ModerationTrigger,
@@ -19,10 +18,9 @@ from chorus_stage.models import (
     User,
     UserState,
 )
+from chorus_stage.schemas.user import ProfileResponse, ProfileUpdateRequest
 
 router = APIRouter(prefix="/users", tags=["users", "transparency"])
-
-SessionDep = Annotated[Session, Depends(get_db)]
 
 
 def _decode_user_id(subject: str) -> bytes:
@@ -49,52 +47,45 @@ async def get_user_summary(user_id: str, db: SessionDep) -> dict[str, Any]:
 
     # Posts and comments
     total_posts = (
-        db.query(func.count())
-        .select_from(Post)
+        db.query(func.count(Post.id))
         .filter(Post.author_user_id == user_id_bytes)
         .scalar() or 0
     )
     total_comments = (
-        db.query(func.count())
-        .select_from(Post)
+        db.query(func.count(Post.id))
         .filter(Post.author_user_id == user_id_bytes, Post.parent_post_id.isnot(None))
         .scalar()
         or 0
     )
     # Vote activity cast by the user
     upvotes_cast = (
-        db.query(func.count())
-        .select_from(PostVote)
+        db.query(func.count(PostVote.id))
         .filter(PostVote.voter_user_id == user_id_bytes, PostVote.direction == 1)
         .scalar()
         or 0
     )
     downvotes_cast = (
-        db.query(func.count())
-        .select_from(PostVote)
+        db.query(func.count(PostVote.id))
         .filter(PostVote.voter_user_id == user_id_bytes, PostVote.direction == -1)
         .scalar()
         or 0
     )
     # Moderation participation (cast by the user)
     mod_votes_harmful = (
-        db.query(func.count())
-        .select_from(ModerationVote)
+        db.query(func.count(ModerationVote.id))
         .filter(ModerationVote.voter_user_id == user_id_bytes, ModerationVote.choice == 1)
         .scalar()
         or 0
     )
     mod_votes_not = (
-        db.query(func.count())
-        .select_from(ModerationVote)
+        db.query(func.count(ModerationVote.id))
         .filter(ModerationVote.voter_user_id == user_id_bytes, ModerationVote.choice == 0)
         .scalar()
         or 0
     )
     # Moderation triggers spent
     mod_triggers = (
-        db.query(func.count())
-        .select_from(ModerationTrigger)
+        db.query(func.count(ModerationTrigger.id))
         .filter(ModerationTrigger.trigger_user_id == user_id_bytes)
         .scalar()
         or 0
@@ -159,6 +150,45 @@ async def get_user_recent_posts(
             }
         )
     return results
+
+
+@router.get("/me/profile", response_model=ProfileResponse)
+async def get_my_profile(
+    current_user: CurrentUserDep,
+) -> ProfileResponse:
+    """Get current user's profile information.
+
+    Returns the authenticated user's display name and accent color.
+    """
+    return ProfileResponse(
+        display_name=current_user.display_name,
+        accent_color=current_user.accent_color,
+    )
+
+
+@router.patch("/me/profile", response_model=ProfileResponse)
+async def update_my_profile(
+    payload: ProfileUpdateRequest,
+    current_user: CurrentUserDep,
+    db: SessionDep,
+) -> ProfileResponse:
+    """Update current user's profile information.
+
+    Updates only the provided fields (partial update). Both display_name and
+    accent_color are optional. If a field is not provided, it will not be changed.
+    """
+    # Update only provided fields
+    if payload.display_name is not None:
+        current_user.display_name = payload.display_name
+    if payload.accent_color is not None:
+        current_user.accent_color = payload.accent_color
+
+    db.commit()
+
+    return ProfileResponse(
+        display_name=current_user.display_name,
+        accent_color=current_user.accent_color,
+    )
 
 
 @router.get("/{user_id}/communities")

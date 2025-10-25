@@ -4,20 +4,16 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
+from chorus_stage.api.v1.dependencies import CurrentUserDep, SessionDep
 from chorus_stage.core.settings import settings
-from chorus_stage.db.session import get_db
 from chorus_stage.models import Post, PostVote, User
 from chorus_stage.schemas.vote import VoteCreate
 from chorus_stage.services.pow import PowService, get_pow_service
 from chorus_stage.services.replay import ReplayProtectionService, get_replay_service
 
-from .posts import get_current_user
-
 router = APIRouter(prefix="/votes", tags=["votes"])
-bearer_scheme = HTTPBearer()
 
 def get_pow_service_dep() -> PowService:
     """Return the shared proof-of-work service."""
@@ -29,8 +25,6 @@ def get_replay_service_dep() -> ReplayProtectionService:
     return get_replay_service()
 
 
-SessionDep = Annotated[Session, Depends(get_db)]
-CurrentUserDep = Annotated[User, Depends(get_current_user)]
 PowServiceDep = Annotated[PowService, Depends(get_pow_service_dep)]
 ReplayServiceDep = Annotated[ReplayProtectionService, Depends(get_replay_service_dep)]
 
@@ -169,7 +163,7 @@ async def cast_vote(
     # If casting a harmful vote, enforce per-author and per-post cooldowns
     if vote_data.direction == -1:
         voter_pubkey_hex = current_user.pubkey.hex()
-        author_hex = post.author_user_id.hex()
+        author_hex = post.author_user_id.hex() if post.author_user_id else ""
         if replay_service.is_harmful_vote_cooldown_author(voter_pubkey_hex, author_hex) or \
            replay_service.is_harmful_vote_cooldown_post(voter_pubkey_hex, post.id):
             raise HTTPException(
@@ -202,7 +196,7 @@ async def cast_vote(
             voter_pubkey_hex = current_user.pubkey.hex()
             replay_service.set_harmful_vote_cooldown_author(
                 voter_pubkey_hex,
-                post.author_user_id.hex(),
+                post.author_user_id.hex() if post.author_user_id else "",
                 settings.harmful_vote_author_cooldown_seconds,
             )
             replay_service.set_harmful_vote_cooldown_post(
