@@ -57,7 +57,7 @@ def validate_solution(
     if hash_algorithm == "sha256":
         h = hashlib.sha256(bytes(input_bytes)).digest()
     else:  # Default to blake3
-        h = blake3.blake3(bytes(input_bytes)).digest()
+        h = blake3(bytes(input_bytes)).digest()
 
     # Count leading zero bits
     zeros = 0

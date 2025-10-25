@@ -44,7 +44,7 @@ def compute_payload_digest(
     if hash_algorithm == "blake3":
         if not BLAKE3_AVAILABLE or blake3 is None:
             raise ValueError("Blake3 is not available. Use SHA-256 as fallback.")
-        return blake3.blake3(combined_payload).digest()
+        return blake3(combined_payload).digest()
     elif hash_algorithm == "sha256":
         return hashlib.sha256(combined_payload).digest()
     else:
@@ -80,7 +80,7 @@ def compute_pow_hash(
     if hash_algorithm == "blake3":
         if not BLAKE3_AVAILABLE or blake3 is None:
             raise ValueError("Blake3 is not available. Use SHA-256 as fallback.")
-        return blake3.blake3(bytes(input_bytes)).digest()
+        return blake3(bytes(input_bytes)).digest()
     elif hash_algorithm == "sha256":
         return hashlib.sha256(bytes(input_bytes)).digest()
     else:

@@ -38,7 +38,7 @@ class PowService:
         """Return a deterministic challenge for a user/action bucket."""
         bucket = int(time.time() // CHALLENGE_WINDOW_SECONDS)  # 5 minute window
         data = f"{action}:{pubkey_hex}:{bucket}".encode()
-        return blake3.blake3(data).hexdigest()
+        return blake3(data).hexdigest()
 
     def verify_pow(
         self,
@@ -72,7 +72,7 @@ class PowService:
         if hash_algorithm == "sha256":
             payload_digest = hashlib.sha256(combined_payload).digest()
         else:  # Default to blake3
-            payload_digest = blake3.blake3(combined_payload).digest()
+            payload_digest = blake3(combined_payload).digest()
 
         try:
             nonce_int = int(nonce, 16)  # Assuming nonce is hex-encoded
