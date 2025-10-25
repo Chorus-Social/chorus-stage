@@ -1,19 +1,30 @@
-"""Application settings and configuration."""
+"""Application settings and configuration.
+
+This module defines all configuration options for the Chorus Stage application.
+Settings are loaded from environment variables with sensible defaults.
+"""
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings loaded from environment variables.
 
+    This class defines all configuration options for the Chorus Stage application.
+    Settings can be overridden via environment variables or .env files.
+    """
+
+    # Application metadata
     app_name: str = Field(default="Chorus Stage", alias="APP_NAME")
     app_version: str = Field(default="0.1.0", alias="APP_VERSION")
     admin_email: str | None = Field(default=None, alias="ADMIN_EMAIL")
 
+    # Security and authentication
     secret_key: str = Field(alias="SECRET_KEY")
     debug: bool = Field(default=False, alias="DEBUG")
 
+    # Database configuration
     database_url: str = Field(default="sqlite:///./chorus.db", alias="DATABASE_URL")
     test_database_url: str | None = Field(default=None, alias="TEST_DATABASE_URL")
     use_testing_database: bool = Field(default=False, alias="USE_TEST_DATABASE")
@@ -22,8 +33,10 @@ class Settings(BaseSettings):
     ascii_art_line_delay: float = Field(default=0.05, alias="ASCII_ART_LINE_DELAY")
     sql_debug: bool = Field(default=False, alias="SQL_DEBUG")
 
+    # Redis configuration for caching and replay protection
     redis_url: str = Field(default="redis://localhost:6379", alias="REDIS_URL")
 
+    # JWT authentication settings
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     access_token_expire_minutes: int = Field(
         default=60 * 24 * 30,
@@ -31,6 +44,7 @@ class Settings(BaseSettings):
     )
     login_challenge: str = Field(default="test_nonce_value", alias="LOGIN_CHALLENGE")
 
+    # Proof-of-Work difficulty settings (leading zero bits required)
     pow_difficulty_post: int = Field(default=20, alias="POW_DIFFICULTY_POST")
     pow_difficulty_vote: int = Field(default=15, alias="POW_DIFFICULTY_VOTE")
     pow_difficulty_message: int = Field(default=18, alias="POW_DIFFICULTY_MESSAGE")
@@ -43,6 +57,7 @@ class Settings(BaseSettings):
     pow_lease_seconds: int = Field(default=120, alias="POW_LEASE_SECONDS")
     pow_lease_actions: int = Field(default=3, alias="POW_LEASE_ACTIONS")
 
+    # Content moderation settings
     recent_window_size: int = Field(default=50, alias="RECENT_WINDOW_SIZE")
     controversial_min_total: int = Field(
         default=5,
@@ -69,7 +84,7 @@ class Settings(BaseSettings):
         default=60, alias="MODERATION_TRIGGER_COOLDOWN_SECONDS"
     )
 
-    # Chorus Bridge integration
+    # Chorus Bridge integration settings
     bridge_enabled: bool = Field(default=False, alias="CHORUS_BRIDGE_ENABLED")
     bridge_base_url: str | None = Field(default=None, alias="CHORUS_BRIDGE_BASE_URL")
     bridge_instance_id: str = Field(
@@ -125,6 +140,21 @@ class Settings(BaseSettings):
         alias="CHORUS_BRIDGE_INSTANCE_PRIVATE_KEY",
     )
 
+    # CORS configuration for web frontend access
+    cors_origins: list[str] = Field(
+        default=["*"],
+        alias="CORS_ORIGINS",
+    )
+    cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
+    cors_allow_methods: list[str] = Field(
+        default=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        alias="CORS_ALLOW_METHODS",
+    )
+    cors_allow_headers: list[str] = Field(
+        default=["*"],
+        alias="CORS_ALLOW_HEADERS",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         validate_assignment=True,
@@ -133,7 +163,14 @@ class Settings(BaseSettings):
 
     @property
     def database_url_sync(self) -> str:
-        """Return a sync-compatible database URL for tooling."""
+        """Return a sync-compatible database URL for tooling.
+        
+        Converts asyncpg URLs to psycopg for synchronous database operations
+        like Alembic migrations.
+        
+        Returns:
+            Database URL compatible with synchronous database drivers
+        """
         url = self.effective_database_url
         if url.startswith("postgresql+asyncpg"):
             return url.replace("postgresql+asyncpg", "postgresql+psycopg", 1)
@@ -141,14 +178,22 @@ class Settings(BaseSettings):
 
     @property
     def effective_database_url(self) -> str:
-        """Return the database URL respecting testing overrides."""
+        """Return the database URL respecting testing overrides.
+        
+        Returns:
+            The active database URL (test database if in testing mode, otherwise production)
+        """
         if self.use_testing_database and self.test_database_url:
             return self.test_database_url
         return self.database_url
 
     @property
     def moderation_thresholds(self) -> dict[str, float]:
-        """Return moderation thresholds as a convenience dictionary."""
+        """Return moderation thresholds as a convenience dictionary.
+        
+        Returns:
+            Dictionary with moderation threshold values for content filtering
+        """
         return {
             "min_votes": float(self.controversial_min_total),
             "hide_ratio": self.harmful_hide_threshold,
@@ -156,7 +201,11 @@ class Settings(BaseSettings):
 
     @property
     def settings(self) -> "Settings":
-        """Provide self-reference for legacy imports expecting a module attribute."""
+        """Provide self-reference for legacy imports expecting a module attribute.
+        
+        Returns:
+            Self-reference for backward compatibility
+        """
         return self
 
 
